@@ -1,0 +1,23 @@
+{
+  "name": "zaalis-browser",
+  "productName": "zaalis browser",
+  "version": "1.0.0",
+  "description": "zaalis Browser — port macOS du navigateur Windows zaalisBrowser.",
+  "main": "main.js",
+  "author": {
+    "name": "zaalis"
+  },
+  "license": "ISC",
+  "scripts": {
+    "start": "electron .",
+    "make-icns": "node scripts/make-icns.js",
+    "pack:arm64": "npm run make-icns && electron-builder --mac dmg --arm64 --config electron-builder.json",
+    "pack:x64":   "npm run make-icns && electron-builder --mac dmg --x64   --config electron-builder.json",
+    "pack:all":   "npm run make-icns && electron-builder --mac dmg --arm64 --x64 --config electron-builder.json"
+  },
+  "devDependencies": {
+    "electron": "^32.2.0",
+    "electron-builder": "^25.1.8",
+    "png2icons": "^2.0.1"
+  }
+}

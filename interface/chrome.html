@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<style>
+  :root {
+    --sep: 1rem;
+  }
+  /* ----- Theme clair (adouci, pas blanc pur) ----- */
+  body {
+    --bg:        #dfe1e5;
+    --bar:       #e8eaed;
+    --surface:   #f1f3f4;
+    --surface-h: #e2e5e9;
+    --active:    #f7f8fa;
+    --text:      #202124;
+    --muted:     #5f6368;
+    --border:    #d2d5d9;
+    --input-bg:  #ffffff;
+    --accent:    #1a73e8;
+    --danger:    #d93025;
+  }
+  /* ----- Theme sombre (noir) ----- */
+  body.dark {
+    --bg:        #191a1c;
+    --bar:       #202124;
+    --surface:   #303134;
+    --surface-h: #3c4043;
+    --active:    #35363a;
+    --text:      #e8eaed;
+    --muted:     #9aa0a6;
+    --border:    #3c4043;
+    --input-bg:  #303134;
+    --accent:    #8ab4f8;
+    --danger:    #f28b82;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
+  body {
+    font-family: "Segoe UI", Arial, sans-serif;
+    background: transparent;
+    color: var(--text);
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* ---------- Barre d'onglets ---------- */
+  .tabstrip {
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    height: 40px;
+    padding: 6px 8px 0 8px;
+    background: var(--bg);
+  }
+  .brand {
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 10px 4px 6px;
+  }
+  .brand img { height: 24px; width: auto; max-width: 44px; border-radius: 5px; object-fit: contain; display: block; }
+  .brand span {
+    font-weight: 600; font-size: 13px; letter-spacing: .3px;
+    background: linear-gradient(90deg, #4898ff, #00ffff);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .tabs { display: flex; align-items: flex-end; gap: 4px; min-width: 0; }
+  .tab {
+    display: flex; align-items: center; gap: 8px;
+    height: 34px; max-width: 220px; min-width: 96px;
+    padding: 0 8px 0 14px;
+    background: var(--surface);
+    border-radius: 12px 12px 0 0;
+    font-size: 13px; color: var(--muted);
+    cursor: default; position: relative;
+    transition: background .15s ease, color .15s ease, transform .18s ease, box-shadow .15s ease;
+  }
+  .tab:hover { background: var(--surface-h); }
+  /* Après un clic droit, macOS n'émet pas pointerleave quand le menu natif
+     s'ouvre : la tab garderait le fond gris du :hover. On le neutralise. */
+  .tab.suppress-hover:hover { background: var(--surface); }
+  .tab.suppress-hover.active:hover { background: var(--active); }
+  .tab.active {
+    background: var(--active); color: var(--text); font-weight: 500;
+    box-shadow: 0 -1px 0 rgba(0,0,0,.03), 0 -3px 10px rgba(0,0,0,.06);
+  }
+  .tab.dragging { box-shadow: 0 6px 18px rgba(0,0,0,.30); cursor: grabbing; z-index: 10; }
+  /* Onglets lies par la vue fractionnee : groupe facon Chrome
+     (pilule coloree sous l'ensemble, cercle sur chaque onglet). */
+  .tab.split {
+    position: relative;
+    background: linear-gradient(180deg, rgba(72,152,255,.10), rgba(0,212,255,.14));
+  }
+  .tab.split:hover { background: linear-gradient(180deg, rgba(72,152,255,.16), rgba(0,212,255,.22)); }
+  .tab.split.active {
+    background: linear-gradient(180deg, rgba(72,152,255,.22), rgba(0,212,255,.30));
+    box-shadow: 0 -1px 0 rgba(0,0,0,.03), 0 -3px 10px rgba(0,0,0,.06);
+  }
+  .tab.split::after {
+    content: ""; position: absolute; left: 6px; right: 6px; bottom: 4px;
+    height: 2px; border-radius: 2px;
+    background: linear-gradient(90deg, #4898ff, #00d4ff);
+    box-shadow: 0 0 6px rgba(72,152,255,.55);
+  }
+  body.dark .tab.split { background: linear-gradient(180deg, rgba(138,180,248,.14), rgba(0,212,255,.16)); }
+  body.dark .tab.split.active { background: linear-gradient(180deg, rgba(138,180,248,.26), rgba(0,212,255,.34)); }
+  /* Les deux onglets fractionnes sont colles bord a bord (pas d'ecart entre
+     eux) : on annule le gap du conteneur et les angles internes. */
+  .tab.split-l { border-top-right-radius: 0; }
+  .tab.split-r { border-top-left-radius: 0; margin-left: -4px; }
+  .tab.split-l::after { right: 0; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+  .tab.split-r::after { left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+  .tab .title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tab .close {
+    width: 18px; height: 18px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; line-height: 1; color: var(--muted);
+    flex: none;
+  }
+  .tab .close:hover { background: var(--surface-h); color: var(--text); }
+  .tab.active .close:hover { background: var(--surface); }
+  .newtab {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; color: var(--muted); margin-bottom: 2px; flex: none;
+  }
+  .newtab:hover { background: var(--surface-h); color: var(--text); }
+
+  /* ---------- Barre d'outils ---------- */
+  .toolbar {
+    display: flex; align-items: center; gap: 6px;
+    height: 52px; padding: 0 12px;
+    background: var(--bar);
+  }
+  .iconbtn {
+    width: 34px; height: 34px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text); flex: none;
+    transition: background .12s ease, opacity .12s ease,
+                transform .22s cubic-bezier(.34,1.56,.64,1);
+  }
+  .iconbtn:hover { background: var(--surface-h); }
+  .iconbtn:active { transform: scale(.82); }
+  .iconbtn.disabled { opacity: .32; pointer-events: none; }
+  /* Fonctions IA quand l'IDE n'est pas joignable : cliquable mais grise. */
+  .iconbtn.ai-off { color: var(--muted); opacity: .48; }
+  .iconbtn.ai-off:hover { background: var(--surface-h); }
+  .iconbtn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* Barre d'adresse */
+  .address {
+    position: relative;
+    flex: 1; display: flex; align-items: center; gap: 8px;
+    height: 40px; padding: 0 6px 0 14px;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 21px;
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  .address.focus {
+    border-color: transparent;
+    box-shadow: 0 1px 8px rgba(26,115,232,.35);
+  }
+
+  /* ----- Mode recherche IA (zaalis labs ide) ----- */
+  /* Halo diffus autour de la barre au lieu d'un liseré : pas de démarcation
+     nette, juste une aura bleue douce qui suit le degrade. */
+  .address.ai {
+    border-color: transparent;
+    box-shadow: none;
+  }
+  body.dark .address.ai {
+    border-color: transparent;
+    box-shadow: none;
+  }
+  /* Halo IA : deux couches de degrade superposees qui derivent a des vitesses
+     et sens differents. La composition n'a pas de periode commune -> pas
+     d'impression de boucle. Couleurs saturees pour un rendu plus vif. */
+  .address.ai::before {
+    content: ""; position: absolute; inset: -2px; border-radius: 22px;
+    background:
+      linear-gradient(90deg,
+        rgba(0,120,255,.85), rgba(0,212,255,.85), rgba(120,90,255,.85),
+        rgba(0,212,255,.85), rgba(0,120,255,.85));
+    background-size: 220% 100%;
+    filter: blur(11px); opacity: .78;
+    animation: ai-flow 7s linear infinite;
+    pointer-events: none; z-index: -1;
+  }
+  .address.ai::after {
+    content: ""; position: absolute; inset: -2px; border-radius: 22px;
+    background:
+      radial-gradient(60% 120% at 20% 40%, rgba(72,152,255,.55), transparent 60%),
+      radial-gradient(55% 130% at 75% 60%, rgba(0,212,255,.55), transparent 60%),
+      radial-gradient(50% 110% at 50% 100%, rgba(160,110,255,.45), transparent 65%);
+    filter: blur(14px); opacity: .70;
+    mix-blend-mode: screen;
+    animation: ai-drift 11.3s ease-in-out infinite alternate;
+    pointer-events: none; z-index: -1;
+  }
+  @keyframes ai-flow {
+    from { background-position: 0% 50%; }
+    to   { background-position: 220% 50%; }
+  }
+  /* Deplacement libre des taches : x/y/rotation avec des amplitudes qui
+     ne se re-alignent jamais parfaitement -> impression naturelle. */
+  @keyframes ai-drift {
+    0%   { transform: translate3d(-4%,  2%, 0) rotate(-3deg) scale(1.02); }
+    33%  { transform: translate3d( 5%, -3%, 0) rotate( 2deg) scale(1.05); }
+    66%  { transform: translate3d(-2%,  4%, 0) rotate( 4deg) scale(1.00); }
+    100% { transform: translate3d( 6%,  1%, 0) rotate(-2deg) scale(1.06); }
+  }
+  .iconbtn.ai-on { color: #1f7bff; }
+  .iconbtn.ai-on svg { filter: drop-shadow(0 0 6px rgba(31,123,255,.75)); }
+  body.dark .iconbtn.ai-on { color: #8ab4f8; }
+  body.dark .iconbtn.ai-on svg { filter: drop-shadow(0 0 6px rgba(138,180,248,.75)); }
+  .address .search {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; flex: none;
+    color: var(--muted);
+  }
+  .address .search:hover { background: var(--surface-h); color: var(--accent); }
+  .address .search svg { width: 16px; height: 16px; fill: currentColor; }
+  .address .search { transition: background .12s ease, transform .22s cubic-bezier(.34,1.56,.64,1); }
+  .address .search:active { transform: scale(.8); }
+  .newtab { transition: background .12s ease, color .12s ease, transform .22s cubic-bezier(.34,1.56,.64,1); }
+  .newtab:active { transform: scale(.8); }
+  .bm { transition: background .12s ease, transform .18s cubic-bezier(.34,1.56,.64,1); }
+  .bm:active { transform: scale(.94); }
+  .address input {
+    flex: 1; border: none; outline: none; background: transparent;
+    font-size: 14px; color: var(--text);
+    user-select: text; -webkit-user-select: text;
+  }
+  .address input::placeholder { color: var(--muted); }
+  .star { color: var(--muted); }
+  .star.on { color: #f5b400; }
+  .star.on svg { fill: #f5b400; stroke: #f5b400; }
+  #media.active { background: var(--surface-h); color: var(--accent); }
+
+  /* Toujours present mais replie : il glisse a l'ouverture du mode local. */
+  .lock { display: flex; align-items: center; gap: 6px; height: 30px;
+          border-radius: 15px; background: rgba(217,48,37,.14); color: var(--danger);
+          font-size: 12px; font-weight: 600; flex: none; overflow: hidden; white-space: nowrap;
+          max-width: 0; padding: 0; margin: 0; opacity: 0;
+          transition: max-width .28s cubic-bezier(.34,1.4,.64,1), padding .28s ease,
+                      margin .28s ease, opacity .2s ease; }
+  body.offline .lock { max-width: 140px; padding: 0 12px; margin: 0 2px 0 4px; opacity: 1; }
+  .lock svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; flex: none; }
+
+  /* ---------- Barre de progression (facon Google) ---------- */
+  /* Remplace le trait separateur habituel : transparente au repos, elle se
+     remplit de gauche a droite pendant le chargement d'une page/recherche. */
+  .loadbar { height: 3px; background: var(--bar); overflow: hidden; flex: none; }
+  .loadbar-fill {
+    height: 100%; width: 0%; opacity: 0;
+    background: linear-gradient(90deg, #4898ff, #00d4ff);
+  }
+  .loadbar-fill.animating { transition: width .2s ease, opacity .3s ease; }
+  .loadbar-fill.active { opacity: 1; }
+
+  /* ---------- Barre de favoris ---------- */
+  .bookmarks-bar {
+    display: flex; align-items: center; gap: 6px;
+    height: 36px; padding: 0 10px;
+    background: var(--bar);
+    border-top: 1px solid var(--border);
+  }
+  body.hide-bookmarks .bookmarks-bar { display: none; }
+  .bookmarks {
+    display: flex; align-items: center; gap: 4px;
+    flex: 1; min-width: 0; overflow: hidden; height: 100%;
+  }
+
+  /* ---------- Profil (rond a droite de la barre de favoris) ---------- */
+  .profile-chip {
+    width: 26px; height: 26px; border-radius: 50%; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; color: #fff; overflow: hidden;
+    background: #9aa0a6;
+    transition: box-shadow .15s ease, transform .18s cubic-bezier(.34,1.56,.64,1);
+  }
+  .profile-chip:hover { box-shadow: 0 0 0 3px var(--surface-h); }
+  .profile-chip:active { transform: scale(.9); }
+  .profile-chip img { width: 100%; height: 100%; object-fit: cover; }
+
+  .profile-pop {
+    position: absolute; top: 136px; right: 8px; width: 320px;
+    max-width: calc(100vw - 16px);
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); border-radius: 18px;
+    padding: 12px 14px 12px; z-index: 60;
+    box-shadow: 0 10px 34px rgba(0,0,0,.28);
+    opacity: 0; pointer-events: none;
+    transform: translateY(-6px) scale(.98); transform-origin: top right;
+    transition: opacity .16s cubic-bezier(.2,.8,.2,1), transform .16s cubic-bezier(.2,.8,.2,1);
+  }
+  body.profile-open .profile-pop { opacity: 1; pointer-events: auto; transform: none; }
+  .pp-head { display: flex; align-items: center; margin-bottom: 4px; }
+  .pp-head .pp-mail {
+    flex: 1; text-align: center; font-size: 13px; color: var(--muted);
+    padding-left: 26px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .pp-close {
+    width: 26px; height: 26px; border-radius: 50%; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 15px;
+  }
+  .pp-close:hover { background: var(--surface-h); color: var(--text); }
+  .pp-avatar-wrap { position: relative; width: 80px; margin: 8px auto 10px; }
+  .pp-avatar {
+    width: 80px; height: 80px; border-radius: 50%; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 34px; font-weight: 600; color: #fff; background: #9aa0a6;
+  }
+  .pp-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .pp-cam {
+    position: absolute; right: -3px; bottom: -3px; width: 26px; height: 26px;
+    border-radius: 50%; background: var(--surface-h);
+    border: 2px solid var(--surface);
+    display: flex; align-items: center; justify-content: center; color: var(--text);
+  }
+  .pp-cam:hover { background: var(--border); }
+  .pp-cam svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .pp-hello {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    font-size: 20px; font-weight: 500; text-align: center;
+    white-space: nowrap; overflow: hidden;
+  }
+  .pp-hello .nm { overflow: hidden; text-overflow: ellipsis; }
+  .pp-sub { text-align: center; font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+  .pp-edit {
+    width: 22px; height: 22px; border-radius: 50%; flex: none;
+    display: flex; align-items: center; justify-content: center; color: var(--muted);
+  }
+  .pp-edit:hover { background: var(--surface-h); color: var(--text); }
+  .pp-edit svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+  .pp-name-input {
+    display: block; margin: 4px auto 0; width: 210px; text-align: center;
+    font-size: 15px; padding: 7px 10px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--input-bg); color: var(--text);
+    outline: none; font-family: inherit;
+  }
+  .pp-name-input:focus { border-color: var(--accent); }
+  .pp-colors { display: flex; justify-content: center; gap: 8px; margin: 12px 0 2px; }
+  .pp-dot {
+    width: 20px; height: 20px; border-radius: 50%;
+    transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .pp-dot:hover { transform: scale(1.15); }
+  .pp-dot.sel { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent); }
+  .pp-primary {
+    display: block; margin: 12px auto 0; width: fit-content;
+    padding: 8px 20px; border-radius: 999px; border: 1px solid var(--border);
+    color: var(--accent); font-size: 13.5px; font-weight: 500; text-align: center;
+  }
+  .pp-primary:hover { background: var(--surface-h); }
+  .pp-actions { display: flex; gap: 2px; margin-top: 14px; border-radius: 14px; overflow: hidden; }
+  .pp-action {
+    flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 12px 8px; background: var(--surface-h); font-size: 13px;
+  }
+  .pp-action:hover { background: var(--border); }
+  .pp-action svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .pp-list { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; max-height: 140px; overflow: auto; }
+  .pp-list-title { font-size: 11.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; margin: 2px 6px 6px; }
+  .pp-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 10px; font-size: 13.5px; }
+  .pp-row:hover { background: var(--surface-h); }
+  .pp-row .nm { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pp-row .mini {
+    width: 24px; height: 24px; border-radius: 50%; flex: none; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 11px; font-weight: 700; background: #9aa0a6;
+  }
+  .pp-row .mini img { width: 100%; height: 100%; object-fit: cover; }
+  .pp-row .del {
+    width: 22px; height: 22px; border-radius: 50%; flex: none;
+    display: none; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 13px;
+  }
+  .pp-row:hover .del { display: flex; }
+  .pp-row .del:hover { background: var(--danger); color: #fff; }
+  .pp-foot { margin-top: 10px; text-align: center; font-size: 11.5px; color: var(--muted); }
+  .bm {
+    display: flex; align-items: center; gap: 6px;
+    height: 26px; padding: 0 6px 0 10px;
+    border-radius: 8px; font-size: 12px; color: var(--text);
+    max-width: 180px;
+  }
+  .bm:hover { background: var(--surface-h); }
+  .bm .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bm .x { width: 16px; height: 16px; border-radius: 50%; display: none;
+           align-items: center; justify-content: center; font-size: 12px; color: var(--muted); }
+  .bm:hover .x { display: flex; }
+  .bm .x:hover { background: var(--danger); color: #fff; }
+  .bm .favicon { width: 14px; height: 14px; border-radius: 4px; flex: none; position: relative; overflow: hidden; }
+  .bm .favicon.fallback { background: linear-gradient(90deg, #4898ff, #00ffff); }
+  .bm .favicon img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .empty { font-size: 12px; color: var(--muted); padding-left: 4px; }
+
+  /* ---------- Controle media ---------- */
+  .media-pop {
+    position: absolute; top: 94px; right: 10px; width: 420px; max-width: calc(100vw - 20px);
+    background: var(--surface); color: var(--text); border: 1px solid var(--border);
+    border-radius: 16px; box-shadow: none; padding: 14px;
+    z-index: 50; display: block; overflow: hidden; opacity: 0; pointer-events: none;
+    transform: translateY(-6px) scale(.99); transform-origin: top right;
+    transition: opacity .16s cubic-bezier(.2,.8,.2,1), transform .16s cubic-bezier(.2,.8,.2,1);
+  }
+  body.media-open .media-pop { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); }
+  .media-card {
+    display: grid; grid-template-columns: 82px minmax(0, 1fr) 64px; gap: 12px; align-items: center;
+    background: var(--surface-h); border-radius: 14px; padding: 12px;
+  }
+  .media-art { width:82px; height:82px; border-radius:10px; background:var(--bg); object-fit:cover; }
+  .media-info { min-width:0; overflow:hidden; }
+  .media-title { display:block; max-width:100%; font-weight:700; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .media-sub { color:var(--muted); font-size:13px; margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .media-play {
+    width:58px; height:58px; border-radius:50%; border:none; background:#77d8e8; color:#07333b;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .media-play svg { width:28px; height:28px; fill:currentColor; stroke:none; }
+  .media-controls { display:flex; align-items:center; gap:10px; margin-top:12px; }
+  .media-small {
+    width:32px; height:32px; border:none; border-radius:50%; background:transparent; color:var(--muted);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .media-small:hover { background:rgba(128,128,128,.18); color:var(--text); }
+  .media-small svg { width:19px; height:19px; }
+  .media-bar { flex:1; height:5px; border-radius:999px; background:rgba(128,128,128,.22); overflow:hidden; }
+  .media-fill { height:100%; width:0; border-radius:inherit; background:linear-gradient(90deg,#4898ff,#00d4ff); }
+  .media-row {
+    display:flex; align-items:center; gap:12px; min-height:46px; padding:10px 4px 0;
+    border-top:1px solid var(--border); margin-top:12px; font-size:14px;
+  }
+  .media-row:first-of-type { border-top:none; }
+  .media-row .grow { flex:1; }
+  .media-toggle { width:40px; height:22px; border-radius:11px; background:rgba(128,128,128,.28); position:relative; }
+  .media-toggle::after { content:""; position:absolute; top:3px; left:3px; width:16px; height:16px; border-radius:50%; background:#fff; }
+  .media-toggle.on { background:#77d8e8; }
+  .media-toggle.on::after { left:21px; }
+  .media-empty { padding:22px 10px; color:var(--muted); text-align:center; }
+</style>
+</head>
+
+<body>
+  <div class="tabstrip">
+    <div class="brand"><img id="brand-logo" src="zaalis://home/logo-zaalis.png" alt=""></div>
+    <div class="tabs" id="tabs"></div>
+    <div class="newtab" id="newtab" title="Nouvel onglet">+</div>
+  </div>
+
+  <div class="toolbar">
+    <div class="iconbtn" id="back" title="Precedent"><svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg></div>
+    <div class="iconbtn" id="forward" title="Suivant"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+    <div class="iconbtn" id="reload" title="Recharger"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></div>
+    <div class="iconbtn" id="home" title="Accueil"><svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg></div>
+
+    <div class="lock" id="lock" title="Mode local securise actif : reseau coupe"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Local</div>
+
+    <div class="address" id="address">
+      <div class="search" id="go" title="Rechercher avec Google">
+        <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+      </div>
+      <input id="omni" type="text" autocomplete="off" placeholder="Rechercher sur Google ou saisir une URL">
+    </div>
+
+    <div class="iconbtn" id="ai" title="Recherche IA — zaalis labs ide"><svg viewBox="0 0 24 24"><path d="M12 3l1.7 4.6L18 9.3l-4.3 1.7L12 15.6l-1.7-4.6L6 9.3l4.3-1.7z"/><path d="M18.5 14.2l.85 2.05 2.05.85-2.05.85-.85 2.05-.85-2.05-2.05-.85 2.05-.85z"/></svg></div>
+    <div class="iconbtn star" id="star" title="Ajouter aux favoris"><svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></div>
+    <div class="iconbtn" id="aichat" title="Chat IA — zaalis labs ide"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z"/><path d="M12 8.2l.9 2.4 2.4.9-2.4.9-.9 2.4-.9-2.4-2.4-.9 2.4-.9z"/></svg></div>
+    <div class="iconbtn" id="media" title="Controle media"><svg viewBox="0 0 24 24"><path d="M4 5h10"/><path d="M4 12h7"/><path d="M4 19h4"/><circle cx="17" cy="17" r="3"/><path d="M17 14V4l4 1"/></svg></div>
+    <div class="iconbtn" id="settings" title="Parametres"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+  </div>
+
+  <div class="loadbar" id="loadbar"><div class="loadbar-fill" id="loadbar-fill"></div></div>
+
+  <div class="bookmarks-bar">
+    <div class="bookmarks" id="bookmarks"></div>
+    <div class="profile-chip" id="profile-btn" title="Profil"></div>
+  </div>
+
+  <div class="profile-pop" id="profile-pop"></div>
+
+  <div class="media-pop" id="media-pop">
+    <div id="media-content"></div>
+  </div>
+
+<script>
+  const wv = window.chrome && window.chrome.webview;
+  const SEP = "\x1f";
+  function post(...parts){ if (wv) wv.postMessage(parts.join(SEP)); }
+
+  const $ = id => document.getElementById(id);
+  const tabsEl = $("tabs"), omni = $("omni"), addr = $("address");
+  let state = { theme:"light", searchEngine:"google", showBookmarks:true, tabs:[], active:{}, bookmarks:[] };
+  let editing = false;
+  let aiMode = false;
+  let mediaOpen = false;
+  let mediaState = { available:false };
+  let mediaPoll = 0;
+
+  function isInternal(u){ return !u || u.indexOf("zaalis.home") !== -1 || u.indexOf("zaalis://") === 0 || u === "about:blank"; }
+
+  function updatePlaceholder(){
+    if (aiMode) { omni.placeholder = "Rechercher avec zaalis labs ide — IA"; return; }
+    const engineNames = { google:"Google", bing:"Bing", duckduckgo:"DuckDuckGo", brave:"Brave" };
+    omni.placeholder = "Rechercher avec " + (engineNames[state.searchEngine] || "Google") + " ou saisir une URL";
+  }
+
+  function setAiMode(on){
+    aiMode = !!on;
+    addr.classList.toggle("ai", aiMode);
+    const btn = document.getElementById("ai");
+    if (btn) { btn.classList.toggle("ai-on", aiMode); btn.title = aiMode ? "Recherche IA activee — zaalis labs ide" : "Recherche IA — zaalis labs ide"; }
+    updatePlaceholder();
+  }
+
+  function faviconUrl(u) {
+    try { return "https://www.google.com/s2/favicons?sz=64&domain=" + encodeURIComponent(new URL(u).hostname); }
+    catch (e) { return ""; }
+  }
+
+  function render(){
+    document.body.classList.toggle("dark", state.theme === "dark");
+    document.body.classList.toggle("hide-bookmarks", state.showBookmarks === false);
+    updatePlaceholder();
+
+    // Onglets
+    tabsEl.innerHTML = "";
+    state.tabs.forEach(t => {
+      const el = document.createElement("div");
+      const inSplit = Array.isArray(state.split) && state.split.indexOf(t.id) !== -1;
+      const splitSide = inSplit ? (state.split[0] === t.id ? " split-l" : " split-r") : "";
+      el.className = "tab" + (t.active ? " active" : "") + (inSplit ? " split" + splitSide : "");
+      el.dataset.id = t.id;
+      el.addEventListener("contextmenu", (e) => {
+        e.preventDefault(); e.stopPropagation();
+        // Le menu natif avale le pointerup : tout drag en cours doit etre
+        // annule ici, sinon l'onglet reste accroche au curseur apres le menu.
+        cancelTabDrag();
+        // Verrouille l'apparence : pas de fond :hover tant que le pointeur
+        // n'a pas quitté puis re-survolé la tab (macOS + Menu.popup).
+        el.classList.add("suppress-hover");
+        const clear = () => { el.classList.remove("suppress-hover");
+          el.removeEventListener("pointerleave", clear);
+          el.removeEventListener("pointermove", onMove); };
+        const onMove = (ev) => { const b = el.getBoundingClientRect();
+          if (ev.clientX < b.left || ev.clientX > b.right || ev.clientY < b.top || ev.clientY > b.bottom) clear(); };
+        el.addEventListener("pointerleave", clear);
+        el.addEventListener("pointermove", onMove);
+        post("tabMenu", t.id);
+      });
+      const title = document.createElement("div");
+      title.className = "title";
+      title.textContent = t.title && t.title.trim() ? t.title : "Nouvel onglet";
+      el.appendChild(title);
+      const close = document.createElement("div");
+      close.className = "close"; close.textContent = "x";
+      close.onclick = (e)=>{ e.stopPropagation(); post("closeTab", t.id); };
+      el.appendChild(close);
+      el.addEventListener("pointerdown", (e)=> startTabDrag(e, el, t.id));
+      tabsEl.appendChild(el);
+    });
+
+    // Barre d'adresse (sauf si l'utilisateur tape)
+    if (!editing) {
+      const u = state.active.url || "";
+      omni.value = isInternal(u) ? "" : u;
+    }
+
+    document.body.classList.toggle("offline", !!state.offline);
+
+    // Boutons nav
+    $("back").classList.toggle("disabled", !state.active.canBack);
+    $("forward").classList.toggle("disabled", !state.active.canForward);
+    $("star").classList.toggle("on", !!state.active.isBookmarked);
+    $("star").title = state.active.isBookmarked ? "Retirer des favoris" : "Ajouter aux favoris";
+    $("media").classList.toggle("active", mediaOpen);
+
+    // Grise les fonctions IA si l'IDE n'est pas joignable (sauf mode IA deja actif).
+    const aiOff = !state.aiConnected;
+    $("ai").classList.toggle("ai-off", aiOff && !aiMode);
+    $("aichat").classList.toggle("ai-off", aiOff);
+    if (aiOff) {
+      $("ai").title = state.aiStatusMessage || "IA indisponible : zaalis labs ide non joignable.";
+      $("aichat").title = $("ai").title;
+    } else {
+      $("aichat").title = "Chat IA — zaalis labs ide";
+      if (!aiMode) $("ai").title = "Recherche IA — zaalis labs ide";
+    }
+
+    // Meme bleu que la recherche IA quand le panneau correspondant est ouvert.
+    $("aichat").classList.toggle("ai-on", !!state.aiPanelOpen && !aiOff);
+    $("settings").classList.toggle("ai-on", !!state.panelOpen);
+
+    // Favoris
+    const bm = $("bookmarks"); bm.innerHTML = "";
+    if (!state.bookmarks.length) {
+      const e = document.createElement("div"); e.className = "empty";
+      e.textContent = "Vos favoris apparaitront ici"; bm.appendChild(e);
+    } else {
+      state.bookmarks.forEach(b => {
+        const el = document.createElement("div"); el.className = "bm";
+        const fav = document.createElement("div"); fav.className = "favicon";
+        const src = faviconUrl(b.url);
+        if (src) {
+          const img = document.createElement("img"); img.alt = "";
+          img.onerror = () => { img.remove(); fav.classList.add("fallback"); };
+          img.src = src;
+          fav.appendChild(img);
+        } else {
+          fav.classList.add("fallback");
+        }
+        el.appendChild(fav);
+        const t = document.createElement("div"); t.className = "t";
+        t.textContent = b.title && b.title.trim() ? b.title : b.url; el.appendChild(t);
+        const x = document.createElement("div"); x.className = "x"; x.textContent = "x";
+        x.onclick = (e)=>{ e.stopPropagation(); post("removeBookmark", b.url); };
+        el.appendChild(x);
+        el.onclick = ()=> post("openBookmark", b.url);
+        el.title = b.url;
+        bm.appendChild(el);
+      });
+    }
+
+    // Profil : rond de la barre de favoris + popup s'il est ouvert.
+    renderProfileChip();
+    if (profileOpen && !profileEditingName && !profileCreating) renderProfilePop();
+
+    // Barre de progression : demarre/arrete au changement d'etat de chargement.
+    const loading = !!state.active.loading;
+    if (loading !== wasLoading) { wasLoading = loading; setLoadingBar(loading); }
+
+    reportHeight();
+  }
+
+  // Barre de progression "facon Google" : progression indeterminee (on ne
+  // connait pas la duree du chargement a l'avance), qui ralentit en
+  // s'approchant de 90% puis se termine d'un trait quand la page est prete.
+  let loadTimer = 0;
+  let loadPct = 0;
+  let wasLoading = false;
+  function setLoadingBar(active){
+    const fill = $("loadbar-fill");
+    clearInterval(loadTimer); loadTimer = 0;
+    if (active) {
+      loadPct = 0;
+      fill.classList.remove("animating");
+      fill.style.width = "0%";
+      void fill.offsetWidth; // force reflow avant de reactiver la transition
+      fill.classList.add("animating", "active");
+      loadTimer = setInterval(() => {
+        loadPct += (90 - loadPct) * 0.08;
+        fill.style.width = Math.min(loadPct, 90) + "%";
+      }, 120);
+    } else {
+      fill.classList.add("animating");
+      fill.style.width = "100%";
+      setTimeout(() => {
+        fill.classList.remove("active");
+        setTimeout(() => { fill.classList.remove("animating"); fill.style.width = "0%"; }, 300);
+      }, 200);
+    }
+  }
+
+  function fmtTime(seconds){
+    seconds = Math.max(0, Math.floor(Number(seconds) || 0));
+    const m = Math.floor(seconds / 60), s = seconds % 60;
+    return m + ":" + String(s).padStart(2, "0");
+  }
+
+  function mediaCmd(cmd){
+    post("mediaCommand", cmd, String(mediaState.tabId || ""));
+    setTimeout(()=>post("getMediaState"), 160);
+  }
+
+  function renderMedia(){
+    const root = $("media-content");
+    if (!mediaState || !mediaState.available) {
+      root.innerHTML = '<div class="media-empty">Aucun media actif.</div>';
+      return;
+    }
+
+    const pct = mediaState.duration ? Math.max(0, Math.min(100, mediaState.current / mediaState.duration * 100)) : 0;
+    const art = mediaState.artwork ? mediaState.artwork : "zaalis://home/logo-zaalis.png";
+    root.innerHTML =
+      '<div class="media-card">' +
+        '<img class="media-art" src="' + art.replace(/"/g, "&quot;") + '" alt="">' +
+        '<div class="media-info"><div class="media-title"></div><div class="media-sub"></div></div>' +
+        '<button class="media-play" id="media-play" title="Lecture / pause"></button>' +
+      '</div>' +
+      '<div class="media-controls">' +
+        '<button class="media-small" id="media-prev" title="Titre precedent"><svg viewBox="0 0 24 24"><path d="M19 20L9 12l10-8v16z"/><path d="M5 19V5"/></svg></button>' +
+        '<button class="media-small" id="media-back" title="Reculer de 10 secondes"><svg viewBox="0 0 24 24"><path d="M11 19l-7-7 7-7"/><path d="M20 19l-7-7 7-7"/></svg></button>' +
+        '<div class="media-bar"><div class="media-fill" style="width:' + pct + '%"></div></div>' +
+        '<button class="media-small" id="media-forward" title="Avancer de 10 secondes"><svg viewBox="0 0 24 24"><path d="M13 5l7 7-7 7"/><path d="M4 5l7 7-7 7"/></svg></button>' +
+        '<button class="media-small" id="media-next" title="Titre suivant"><svg viewBox="0 0 24 24"><path d="M5 4l10 8-10 8V4z"/><path d="M19 5v14"/></svg></button>' +
+      '</div>' +
+      '<div class="media-sub" style="text-align:center;margin-top:4px">' + fmtTime(mediaState.current) + ' / ' + fmtTime(mediaState.duration) + '</div>' +
+      '<div class="media-row" id="media-captions"><div class="iconbtn disabled" style="width:28px;height:28px"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 12h4M13 12h4M7 15h7"/></svg></div><div class="grow">Sous-titres</div><div class="media-toggle' + (mediaState.captionsOn ? ' on' : '') + '"></div></div>' +
+      '<div class="media-row" id="media-caption-settings"><div class="iconbtn disabled" style="width:28px;height:28px"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M2 12h3M19 12h3M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/></svg></div><div class="grow"><b>Parametres des sous-titres</b></div><div class="chev">&nearr;</div></div>';
+    root.querySelector(".media-title").textContent = mediaState.title || "Media";
+    root.querySelector(".media-sub").textContent = mediaState.artist || mediaState.host || "";
+    $("media-play").innerHTML = mediaState.paused
+      ? '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>'
+      : '<svg viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>';
+    $("media-play").onclick = () => mediaCmd("playPause");
+    $("media-prev").onclick = () => mediaCmd("prev");
+    $("media-next").onclick = () => mediaCmd("next");
+    $("media-back").onclick = () => mediaCmd("seekBack");
+    $("media-forward").onclick = () => mediaCmd("seekForward");
+    $("media-captions").onclick = () => mediaCmd("captions");
+    $("media-caption-settings").onclick = () => mediaCmd("captionSettings");
+  }
+
+  function setMediaOpen(open){
+    mediaOpen = open;
+    document.body.classList.toggle("media-open", mediaOpen);
+    $("media").classList.toggle("active", mediaOpen);
+    if (mediaOpen) {
+      if (profileOpen) setProfileOpen(false);
+      post("getMediaState");
+      renderMedia();
+      if (!mediaPoll) mediaPoll = setInterval(()=>post("getMediaState"), 1000);
+    } else {
+      clearInterval(mediaPoll);
+      mediaPoll = 0;
+    }
+    reportHeight();
+  }
+
+  // ----- Profils (facon Google, mais 100% local) -----
+  const PROFILE_COLORS = ["#4898ff","#00c4a7","#f5b400","#e8710a","#d93025","#a142f4","#24c1e0","#5f6368"];
+  let profileOpen = false;
+  let profileEditingName = false;
+  let profileCreating = false;
+
+  function profileState(){ return state.profile || { currentId: "", current: null, list: [] }; }
+
+  // Rond avatar : photo si presente, sinon initiale sur fond colore ("I" gris
+  // pour l'invite).
+  function avatarNode(p, cls){
+    const el = document.createElement("div");
+    el.className = cls;
+    if (p && p.photo) {
+      const img = document.createElement("img"); img.alt = "";
+      img.src = "zaalis://home/profile-avatar/" + p.id + "?v=" + p.photo;
+      img.onerror = () => { img.remove(); el.textContent = initialOf(p); el.style.background = p.color || "#9aa0a6"; };
+      el.appendChild(img);
+    } else if (p) {
+      el.textContent = initialOf(p);
+      el.style.background = p.color || "#9aa0a6";
+    } else {
+      el.textContent = "I";
+      el.style.background = "#9aa0a6";
+    }
+    return el;
+  }
+  function initialOf(p){ return ((p.name || "?").trim().charAt(0) || "?").toUpperCase(); }
+
+  function renderProfileChip(){
+    const btn = $("profile-btn");
+    const ps = profileState();
+    btn.innerHTML = "";
+    btn.appendChild(avatarNode(ps.current, "chip-inner"));
+    const inner = btn.firstChild;
+    inner.style.width = "100%"; inner.style.height = "100%";
+    inner.style.display = "flex"; inner.style.alignItems = "center"; inner.style.justifyContent = "center";
+    inner.style.borderRadius = "50%"; inner.style.overflow = "hidden";
+    btn.title = ps.current ? ps.current.name : "Invité — cliquer pour gérer les profils";
+  }
+
+  function ppIcon(svg){ const s = document.createElement("span"); s.innerHTML = svg; return s.firstChild; }
+
+  function renderProfilePop(){
+    const pop = $("profile-pop");
+    const ps = profileState();
+    const cur = ps.current;
+    pop.innerHTML = "";
+
+    // En-tete : nom / "Invité" + fermer
+    const head = document.createElement("div"); head.className = "pp-head";
+    const mail = document.createElement("div"); mail.className = "pp-mail";
+    mail.textContent = cur ? cur.name : "Invité";
+    head.appendChild(mail);
+    const close = document.createElement("div"); close.className = "pp-close"; close.textContent = "✕";
+    close.onclick = () => setProfileOpen(false);
+    head.appendChild(close);
+    pop.appendChild(head);
+
+    // Grand avatar (+ badge photo pour un profil)
+    const wrap = document.createElement("div"); wrap.className = "pp-avatar-wrap";
+    wrap.appendChild(avatarNode(cur, "pp-avatar"));
+    if (cur) {
+      const cam = document.createElement("div"); cam.className = "pp-cam"; cam.title = "Changer la photo";
+      cam.innerHTML = '<svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>';
+      cam.onclick = () => post("profilePhoto", cur.id);
+      wrap.appendChild(cam);
+    }
+    pop.appendChild(wrap);
+
+    // Bonjour + edition du pseudo
+    const hello = document.createElement("div"); hello.className = "pp-hello";
+    const nm = document.createElement("span"); nm.className = "nm";
+    nm.textContent = cur ? ("Bonjour " + cur.name + " !") : "Bonjour !";
+    hello.appendChild(nm);
+    if (cur && !profileEditingName) {
+      const ed = document.createElement("div"); ed.className = "pp-edit"; ed.title = "Modifier le pseudo";
+      ed.innerHTML = '<svg viewBox="0 0 24 24"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg>';
+      ed.onclick = () => { profileEditingName = true; renderProfilePop(); };
+      hello.appendChild(ed);
+    }
+    pop.appendChild(hello);
+
+    if (cur && profileEditingName) {
+      const inp = document.createElement("input");
+      inp.className = "pp-name-input"; inp.maxLength = 40; inp.value = cur.name;
+      inp.placeholder = "Pseudo";
+      const commit = () => {
+        profileEditingName = false;
+        const v = inp.value.trim();
+        if (v && v !== cur.name) post("profileRename", cur.id, v);
+        else renderProfilePop();
+      };
+      inp.onkeydown = (e) => {
+        if (e.key === "Enter") commit();
+        else if (e.key === "Escape") { profileEditingName = false; renderProfilePop(); }
+      };
+      inp.onblur = commit;
+      pop.appendChild(inp);
+      setTimeout(() => { inp.focus(); inp.select(); }, 0);
+    } else {
+      const sub = document.createElement("div"); sub.className = "pp-sub";
+      sub.textContent = cur ? "Profil local — modifications enregistrées automatiquement"
+                            : "Vous naviguez en mode invité";
+      pop.appendChild(sub);
+    }
+
+    // Couleurs d'avatar (profil sans photo)
+    if (cur && !cur.photo) {
+      const row = document.createElement("div"); row.className = "pp-colors";
+      PROFILE_COLORS.forEach(c => {
+        const d = document.createElement("div");
+        d.className = "pp-dot" + (c === cur.color ? " sel" : "");
+        d.style.background = c; d.title = "Couleur de l'avatar";
+        d.onclick = () => post("profileColor", cur.id, c);
+        row.appendChild(d);
+      });
+      pop.appendChild(row);
+    }
+
+    // Invite : bouton principal "Créer un profil" (ou champ de saisie)
+    if (!cur && !profileCreating) {
+      const btn = document.createElement("div"); btn.className = "pp-primary";
+      btn.textContent = "Créer un profil";
+      btn.onclick = () => { profileCreating = true; renderProfilePop(); };
+      pop.appendChild(btn);
+    }
+    if (profileCreating) {
+      const inp = document.createElement("input");
+      inp.className = "pp-name-input"; inp.maxLength = 40;
+      inp.placeholder = "Nom du profil";
+      const commit = () => {
+        const v = inp.value.trim();
+        profileCreating = false;
+        if (v) post("profileCreate", v); else renderProfilePop();
+      };
+      inp.onkeydown = (e) => {
+        if (e.key === "Enter") commit();
+        else if (e.key === "Escape") { profileCreating = false; renderProfilePop(); }
+      };
+      inp.onblur = () => { if (profileCreating) { profileCreating = false; renderProfilePop(); } };
+      pop.appendChild(inp);
+      setTimeout(() => inp.focus(), 0);
+    }
+
+    // Actions (profil actif) : ajouter / se deconnecter
+    if (cur && !profileCreating) {
+      const act = document.createElement("div"); act.className = "pp-actions";
+      const add = document.createElement("div"); add.className = "pp-action";
+      add.appendChild(ppIcon('<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>'));
+      add.appendChild(document.createTextNode("Ajouter un profil"));
+      add.onclick = () => { profileCreating = true; renderProfilePop(); };
+      act.appendChild(add);
+      const out = document.createElement("div"); out.className = "pp-action";
+      out.appendChild(ppIcon('<svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>'));
+      out.appendChild(document.createTextNode("Se déconnecter"));
+      out.onclick = () => post("profileSelect", "");
+      act.appendChild(out);
+      pop.appendChild(act);
+    }
+
+    // Autres profils : bascule en un clic (+ suppression au survol)
+    const others = ps.list.filter(p => !cur || p.id !== cur.id);
+    if (others.length) {
+      const list = document.createElement("div"); list.className = "pp-list";
+      const title = document.createElement("div"); title.className = "pp-list-title";
+      title.textContent = cur ? "Autres profils" : "Continuer en tant que";
+      list.appendChild(title);
+      others.forEach(p => {
+        const row = document.createElement("div"); row.className = "pp-row";
+        row.appendChild(avatarNode(p, "mini"));
+        const n = document.createElement("div"); n.className = "nm"; n.textContent = p.name;
+        row.appendChild(n);
+        const del = document.createElement("div"); del.className = "del"; del.textContent = "✕";
+        del.title = "Supprimer ce profil";
+        del.onclick = (e) => { e.stopPropagation(); post("profileDelete", p.id); };
+        row.appendChild(del);
+        row.onclick = () => post("profileSelect", p.id);
+        list.appendChild(row);
+      });
+      pop.appendChild(list);
+    }
+
+    const foot = document.createElement("div"); foot.className = "pp-foot";
+    foot.textContent = "Profils enregistrés sur cet appareil";
+    pop.appendChild(foot);
+  }
+
+  function setProfileOpen(open){
+    profileOpen = open;
+    if (!open) { profileEditingName = false; profileCreating = false; }
+    document.body.classList.toggle("profile-open", profileOpen);
+    if (profileOpen) {
+      if (mediaOpen) setMediaOpen(false);
+      renderProfilePop();
+    }
+    reportHeight();
+  }
+
+  $("profile-btn").onclick = () => setProfileOpen(!profileOpen);
+
+  // Clic hors du popup -> fermeture (profil et media).
+  document.addEventListener("pointerdown", (e) => {
+    if (profileOpen && !e.target.closest("#profile-pop, #profile-btn")) setProfileOpen(false);
+    if (mediaOpen && !e.target.closest("#media-pop, #media")) setMediaOpen(false);
+  });
+
+  // ----- Reordonnancement des onglets au pointeur (facon Chrome) -----
+  // L'onglet attrape suit le curseur (net, pas de fantome) ; les autres
+  // s'ecartent en glissant pour lui laisser la place.
+  const GAP = 4;
+  const EASE = "transform .18s cubic-bezier(.2,.7,.3,1)";
+  let drag = null;
+  const tabEls = () => [...tabsEl.querySelectorAll(".tab")];
+
+  // Annule proprement un drag en cours (menu contextuel, perte de focus…) :
+  // retire les ecouteurs et remet tous les onglets a leur place.
+  function cancelTabDrag() {
+    if (!drag) return;
+    window.removeEventListener("pointermove", onTabMove);
+    window.removeEventListener("pointerup", onTabUp);
+    const d = drag; drag = null;
+    d.el.classList.remove("dragging");
+    tabEls().forEach(t => { t.style.transition = ""; t.style.transform = ""; });
+  }
+  window.addEventListener("blur", cancelTabDrag);
+
+  function startTabDrag(e, el, id) {
+    if (e.button !== 0 || e.ctrlKey) return;  // ctrl+clic = menu contextuel macOS
+    if (e.target.closest(".close")) return;   // clic sur fermer
+    const els = tabEls();
+    const index = els.indexOf(el);
+    if (index < 0) return;
+    const rects = els.map(t => { const b = t.getBoundingClientRect(); return { left: b.left, width: b.width, center: b.left + b.width / 2 }; });
+    drag = { el, id, index, startX: e.clientX, rects, w: el.offsetWidth + GAP, target: index, moved: false };
+    window.addEventListener("pointermove", onTabMove);
+    window.addEventListener("pointerup", onTabUp, { once: true });
+  }
+
+  function onTabMove(e) {
+    if (!drag) return;
+    const dx = e.clientX - drag.startX;
+    if (!drag.moved) {
+      if (Math.abs(dx) < 4) return;          // seuil : sinon c'est un clic
+      drag.moved = true;
+      drag.el.classList.add("dragging");
+    }
+    drag.el.style.transition = "none";        // l'onglet tenu suit instantanement
+    drag.el.style.transform = "translateX(" + dx + "px)";
+
+    // Regle "façon Chrome" : un voisin ne se decale que lorsque l'onglet tenu
+    // recouvre la MOITIE de sa largeur (et non au croisement des centres).
+    const dLeft  = drag.rects[drag.index].left + dx;
+    const dRight = dLeft + drag.rects[drag.index].width;
+    const n = drag.rects.length;
+    let target = drag.index;
+    while (target < n - 1) {
+      const nb = drag.rects[target + 1];               // voisin de droite
+      if (dRight > nb.left + nb.width / 2) target++;   // moitie couverte -> il glisse a gauche
+      else break;
+    }
+    while (target > 0) {
+      const nb = drag.rects[target - 1];               // voisin de gauche
+      if (dLeft < nb.left + nb.width / 2) target--;    // moitie couverte -> il glisse a droite
+      else break;
+    }
+    drag.target = target;
+
+    tabEls().forEach((t, i) => {
+      if (i === drag.index) return;
+      let shift = 0;
+      if (target > drag.index && i > drag.index && i <= target) shift = -drag.w;
+      else if (target < drag.index && i >= target && i < drag.index) shift = drag.w;
+      t.style.transition = EASE;
+      t.style.transform = shift ? ("translateX(" + shift + "px)") : "";
+    });
+  }
+
+  function onTabUp() {
+    window.removeEventListener("pointermove", onTabMove);
+    const d = drag; drag = null;
+    if (!d) return;
+    if (!d.moved) { post("selectTab", d.id); return; }   // simple clic -> selection
+
+    // L'onglet glisse jusqu'a sa place finale, puis on valide le nouvel ordre.
+    const offset = (d.target - d.index) * d.w;
+    d.el.style.transition = EASE;
+    d.el.style.transform = "translateX(" + offset + "px)";
+
+    const ids = tabEls().map(t => t.dataset.id);
+    const [moved] = ids.splice(d.index, 1);
+    ids.splice(d.target, 0, moved);
+    setTimeout(() => post("reorderTabs", ids.join(",")), 175);
+  }
+
+  // Reception de l'etat depuis le natif
+  if (wv) wv.addEventListener("message", e => {
+    const d = e.data;
+    if (!d) return;
+    if (d.type === "state") { state = d; if (!drag) render(); }
+    else if (d.type === "focusOmni") { omni.focus(); omni.select(); }
+    else if (d.type === "mediaState") {
+      if (d.available) {
+        if (!mediaState.available ||
+            (!d.paused && mediaState.paused) ||
+            (d.active && !mediaState.active && d.paused === mediaState.paused) ||
+            mediaState.tabId === d.tabId) mediaState = d;
+      } else if (!mediaState.available || mediaState.tabId === d.tabId) {
+        mediaState = d;
+      }
+      if (mediaOpen) renderMedia();
+    }
+  });
+
+  // Double-clic sur une zone vide de la barre d'onglets -> plein ecran (comme
+  // un double-clic sur la barre de titre native).
+  document.querySelector(".tabstrip").addEventListener("dblclick", (e)=>{
+    if (e.target.closest(".tab, .newtab, .brand")) return;
+    post("toggleMaximize");
+  });
+
+  // Actions
+  $("newtab").onclick = ()=> post("newTab");
+  $("back").onclick = ()=> post("back");
+  $("forward").onclick = ()=> post("forward");
+  $("reload").onclick = ()=> post("reload");
+  $("home").onclick = ()=> post("home");
+  $("star").onclick = ()=> post("bookmarkToggle");
+  $("media").onclick = ()=> setMediaOpen(!mediaOpen);
+  $("settings").onclick = ()=> post("togglePanel");
+  function aiUnavailableFlash(btn) {
+    // Flash rouge doux + ouvre le panneau reglages sur l'etat de connexion.
+    btn.animate([{transform:'translateX(0)'},{transform:'translateX(-3px)'},{transform:'translateX(3px)'},{transform:'translateX(0)'}], {duration:220});
+    post("togglePanel");
+  }
+  $("ai").onclick = ()=> {
+    if (!state.aiConnected) { aiUnavailableFlash($("ai")); return; }
+    setAiMode(!aiMode); if (aiMode) { omni.focus(); }
+  };
+  $("aichat").onclick = ()=> {
+    if (!state.aiConnected) { aiUnavailableFlash($("aichat")); return; }
+    post("toggleAiPanel");
+  };
+  $("go").onclick = ()=> submit();
+
+  function submit(){
+    const v = omni.value.trim();
+    if (!v) return;
+    editing = false;
+    post(aiMode ? "aiSearch" : "navigate", v);
+  }
+  omni.addEventListener("focus", ()=>{ editing = true; addr.classList.add("focus"); omni.select(); });
+  omni.addEventListener("blur", ()=>{ editing = false; addr.classList.remove("focus"); render(); });
+  omni.addEventListener("keydown", e => { if (e.key === "Enter") submit(); else if (e.key === "Escape") { omni.blur(); } });
+
+  // Hauteur de la chrome -> communiquee au natif pour positionner le contenu
+  function reportHeight(){
+    const base = 40 + 52 + 3 + (state.showBookmarks === false ? 0 : 36);
+    const pop = mediaOpen ? $("media-pop") : (profileOpen ? $("profile-pop") : null);
+    if (pop) {
+      const left = pop.offsetLeft, top = pop.offsetTop;
+      const right = left + pop.offsetWidth, bottom = top + pop.offsetHeight;
+      post("chromeHeight", Math.max(base, bottom), base,
+           left, top, right, bottom);
+    } else {
+      post("chromeHeight", base, base);
+    }
+  }
+
+  render();
+  post("ready");
+  reportHeight();
+  window.addEventListener("resize", reportHeight);
+</script>
+</body>
+</html>

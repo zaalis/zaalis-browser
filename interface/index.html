@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nouvelle recherche</title>
+    <style>
+        :root {
+            --bg-color: #e9eaed;          /* clair adouci (pas blanc pur) */
+            --text-color: #202124;
+            --logo-text-color: #5f6368;
+            --search-bg: #ffffff;
+            --search-border: #d2d5d9;
+            --search-shadow: 0 1px 10px rgba(26, 115, 232, 0.25);
+            --icon-color: #9aa0a6;
+        }
+        body.dark-mode {
+            --bg-color: #202124;
+            --text-color: #e8eaed;
+            --logo-text-color: #e8eaed;
+            --search-bg: #303134;
+            --search-border: #5f6368;
+            --search-shadow: 0 1px 10px rgba(0, 0, 0, 0.5);
+            --icon-color: #bdc1c6;
+        }
+
+        .gradient-text {
+            background: linear-gradient(90deg, #4898ff, #00ffff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        body {
+            font-family: "Segoe UI", Arial, sans-serif;
+            margin: 0; padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex; flex-direction: column;
+            min-height: 100vh;
+            transition: background-color 0.25s ease, color 0.25s ease;
+        }
+
+        main {
+            flex-grow: 1;
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            padding-bottom: 16vh;
+        }
+
+        h1 {
+            font-size: 72px; font-weight: 400;
+            margin-bottom: 34px;
+            color: var(--logo-text-color);
+            letter-spacing: -0.5px;
+        }
+
+        .search-form { width: 100%; max-width: 580px; margin: 0 auto; }
+        .search-bar-wrapper { position: relative; }
+        #search-input { position: relative; z-index: 2; }
+        .search-bar-wrapper .magnifier, .search-bar-wrapper .ai-toggle { z-index: 3; }
+
+        /* ---------- Bouton IA + bordure degrade (zaalis labs ide) ---------- */
+        .search-bar-wrapper .ai-toggle {
+            position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+            width: 36px; height: 36px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; color: var(--icon-color); z-index: 3;
+            transition: background 0.15s ease, color 0.15s ease;
+        }
+        .search-bar-wrapper .ai-toggle:hover { background: rgba(127,127,127,0.15); color: #1a73e8; }
+        .search-bar-wrapper .ai-toggle.off { color: var(--icon-color); opacity: .48; }
+        body.dark-mode .search-bar-wrapper .ai-toggle:hover { color: #8ab4f8; }
+        .search-bar-wrapper .ai-toggle svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linejoin: round; }
+        .search-bar-wrapper.ai .ai-toggle { color: #4898ff; }
+        .search-bar-wrapper.ai .ai-toggle svg { filter: drop-shadow(0 0 5px rgba(72,152,255,.55)); }
+        /* Mode IA : pas de lisere ni d'anneau — le degrade emane directement
+           du bord de la barre (aucune demarcation entre la barre et le halo). */
+        .search-bar-wrapper.ai #search-input {
+            border-color: transparent;
+            box-shadow: none;
+        }
+        body.dark-mode .search-bar-wrapper.ai #search-input {
+            border-color: transparent;
+            box-shadow: none;
+        }
+        .search-bar-wrapper.ai::before {
+            content: ""; position: absolute; inset: -2px; border-radius: 26px;
+            background: linear-gradient(90deg, rgba(0,120,255,.85), rgba(0,212,255,.85), rgba(120,90,255,.85), rgba(0,212,255,.85), rgba(0,120,255,.85));
+            background-size: 220% 100%;
+            filter: blur(14px); opacity: .8;
+            animation: ai-flow 7s linear infinite; pointer-events: none; z-index: 1;
+        }
+        @keyframes ai-flow { from { background-position: 0% 50%; } to { background-position: 200% 50%; } }
+
+        /* ---------- Raccourcis (facon Google) ---------- */
+        .shortcuts {
+            display: flex; flex-wrap: wrap; justify-content: center;
+            gap: 20px; margin-top: 36px; max-width: 620px;
+        }
+        .shortcut {
+            display: flex; flex-direction: column; align-items: center; gap: 8px;
+            width: 72px; position: relative; cursor: pointer;
+        }
+        .shortcut-icon {
+            width: 46px; height: 46px; border-radius: 50%;
+            background: var(--search-bg); box-shadow: 0 1px 3px rgba(0,0,0,.15);
+            display: flex; align-items: center; justify-content: center;
+            overflow: hidden; position: relative; transition: box-shadow .15s ease;
+        }
+        .shortcut:hover .shortcut-icon { box-shadow: 0 1px 8px rgba(0,0,0,.25); }
+        .shortcut-icon .fallback {
+            display: none; position: absolute; inset: 0; border-radius: 50%;
+            background: linear-gradient(90deg, #4898ff, #00ffff);
+        }
+        .shortcut-icon .fallback.show { display: block; }
+        .shortcut-icon img { position: relative; width: 22px; height: 22px; object-fit: contain; }
+        .shortcut-label {
+            font-size: 12px; color: var(--text); max-width: 72px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .shortcut-remove {
+            position: absolute; top: -4px; right: 6px; width: 20px; height: 20px;
+            border-radius: 50%; background: var(--search-bg); color: var(--icon-color);
+            display: none; align-items: center; justify-content: center;
+            font-size: 13px; line-height: 1; box-shadow: 0 1px 3px rgba(0,0,0,.2);
+        }
+        .shortcut:hover .shortcut-remove { display: flex; }
+        .shortcut-remove:hover { color: #d93025; }
+        .add-shortcut .shortcut-icon { background: transparent; box-shadow: inset 0 0 0 1px var(--search-border); }
+        .add-shortcut:hover .shortcut-icon { box-shadow: inset 0 0 0 1px var(--icon-color); }
+        .add-shortcut .shortcut-icon svg { width: 18px; height: 18px; stroke: var(--icon-color); fill: none; stroke-width: 2; stroke-linecap: round; }
+
+        .search-bar-wrapper .magnifier {
+            position: absolute; left: 8px; top: 50%;
+            transform: translateY(-50%);
+            width: 36px; height: 36px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; color: var(--icon-color);
+            transition: background 0.15s ease, color 0.15s ease;
+        }
+        .search-bar-wrapper .magnifier:hover { background: rgba(127,127,127,0.15); color: #1a73e8; }
+        body.dark-mode .search-bar-wrapper .magnifier:hover { color: #8ab4f8; }
+        .search-bar-wrapper .magnifier svg { width: 20px; height: 20px; fill: currentColor; }
+
+        #search-input {
+            width: 100%;
+            padding: 13px 52px 13px 52px;
+            font-size: 16px;
+            border: 1px solid var(--search-border);
+            border-radius: 24px;
+            background-color: var(--search-bg);
+            color: var(--text-color);
+            box-sizing: border-box; outline: none;
+            transition: all 0.2s ease;
+        }
+        #search-input:focus { border-color: transparent; box-shadow: var(--search-shadow); }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>
+            <span class="gradient-text">
+                <span>Z</span><span>A</span><span>A</span><span>L</span><span>I</span><span>S</span>
+            </span> Search
+        </h1>
+
+        <form class="search-form" id="search-form">
+            <div class="search-bar-wrapper">
+                <div class="magnifier" id="magnifier" title="Rechercher avec Google">
+                    <svg focusable="false" viewBox="0 0 24 24">
+                        <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"></path>
+                    </svg>
+                </div>
+                <input type="text" id="search-input" autocomplete="off" autofocus
+                       placeholder="Rechercher sur Google ou saisir une URL">
+                <div class="ai-toggle" id="ai-toggle" title="Recherche IA — zaalis labs ide">
+                    <svg focusable="false" viewBox="0 0 24 24"><path d="M12 3l1.7 4.6L18 9.3l-4.3 1.7L12 15.6l-1.7-4.6L6 9.3l4.3-1.7z"/><path d="M18.5 14.2l.85 2.05 2.05.85-2.05.85-.85 2.05-.85-2.05-2.05-.85 2.05-.85z"/></svg>
+                </div>
+            </div>
+        </form>
+
+        <div class="shortcuts" id="shortcuts"></div>
+    </main>
+
+    <script>
+        const wv = window.chrome && window.chrome.webview;
+        const form = document.getElementById('search-form');
+        const input = document.getElementById('search-input');
+        const wrapper = document.querySelector('.search-bar-wrapper');
+        const aiToggle = document.getElementById('ai-toggle');
+        let aiMode = false;
+
+        function setAiMode(on) {
+            aiMode = !!on;
+            wrapper.classList.toggle('ai', aiMode);
+            input.placeholder = aiMode
+                ? "Rechercher avec zaalis labs ide — IA"
+                : "Rechercher sur Google ou saisir une URL";
+        }
+        // Pousse par le natif via preload : indique si l'IA est utilisable.
+        let aiConnected = true;
+        aiToggle.addEventListener('click', () => {
+          if (!aiConnected) {
+            // Petit hochement + ouvre les reglages du navigateur.
+            aiToggle.animate([{transform:'translateY(-50%) translateX(0)'},{transform:'translateY(-50%) translateX(-3px)'},{transform:'translateY(-50%) translateX(3px)'},{transform:'translateY(-50%) translateX(0)'}], {duration:220});
+            if (wv) wv.postMessage('togglePanel');
+            return;
+          }
+          setAiMode(!aiMode); input.focus();
+        });
+
+        function launch() {
+            const v = input.value.trim();
+            if (!v) return;
+            // En mode IA : la recherche est confiee a zaalis labs ide.
+            // Sinon, le code natif decide : navigation directe ou recherche.
+            if (wv) wv.postMessage((aiMode ? "aiSearch" : "navigate") + "\x1f" + v);
+        }
+
+        form.addEventListener('submit', (e) => { e.preventDefault(); launch(); });
+        document.getElementById('magnifier').addEventListener('click', launch);
+
+        // Theme injecte par le natif (localStorage) avant le chargement.
+        (function () {
+            const t = localStorage.getItem('zaalis_theme') || 'light';
+            if (t === 'dark') document.body.classList.add('dark-mode');
+        })();
+
+        // ---------- Raccourcis ----------
+        const shortcutsEl = document.getElementById('shortcuts');
+
+        function faviconUrl(u) {
+            try { return "https://www.google.com/s2/favicons?sz=64&domain=" + encodeURIComponent(new URL(u).hostname); }
+            catch (e) { return ""; }
+        }
+
+        function renderShortcuts(items) {
+            shortcutsEl.innerHTML = "";
+            (items || []).forEach(it => {
+                const el = document.createElement("div");
+                el.className = "shortcut"; el.title = it.url;
+                const icon = document.createElement("div"); icon.className = "shortcut-icon";
+                const fallback = document.createElement("div"); fallback.className = "fallback"; icon.appendChild(fallback);
+                const src = faviconUrl(it.url);
+                if (src) {
+                    const img = document.createElement("img"); img.alt = "";
+                    img.onerror = () => { img.remove(); fallback.classList.add("show"); };
+                    img.src = src;
+                    icon.appendChild(img);
+                } else {
+                    fallback.classList.add("show");
+                }
+                el.appendChild(icon);
+                const label = document.createElement("div"); label.className = "shortcut-label";
+                label.textContent = it.title && it.title.trim() ? it.title : new URL(it.url).hostname.replace(/^www\./, "");
+                el.appendChild(label);
+                const rm = document.createElement("div"); rm.className = "shortcut-remove"; rm.textContent = "×";
+                rm.onclick = (e) => { e.stopPropagation(); if (wv) wv.postMessage("removeShortcut" + "\x1f" + it.url); };
+                el.appendChild(rm);
+                el.onclick = () => { if (wv) wv.postMessage("navigate\x1f" + it.url); };
+                shortcutsEl.appendChild(el);
+            });
+
+            const add = document.createElement("div");
+            add.className = "shortcut add-shortcut"; add.title = "Ajouter un raccourci";
+            add.innerHTML = '<div class="shortcut-icon"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div><div class="shortcut-label">Ajouter</div>';
+            add.onclick = () => {
+                const url = (prompt("Adresse du raccourci") || "").trim();
+                if (!url) return;
+                const name = (prompt("Nom du raccourci (optionnel)") || "").trim();
+                if (wv) wv.postMessage("addShortcut" + "\x1f" + url + "\x1f" + name);
+            };
+            shortcutsEl.appendChild(add);
+        }
+
+        function applyAiConnected(on, message) {
+            aiConnected = !!on;
+            aiToggle.classList.toggle('off', !on);
+            aiToggle.title = on ? "Recherche IA — zaalis labs ide"
+                                : (message || "IA indisponible : zaalis labs ide non joignable.");
+        }
+        if (wv) wv.addEventListener('message', e => {
+            const d = e.data;
+            if (!d) return;
+            if (d.type === 'shortcuts') renderShortcuts(d.items);
+            else if (d.type === 'aiStatus') applyAiConnected(d.connected, d.message);
+        });
+        if (wv) wv.postMessage('ready');
+    </script>
+</body>
+</html>

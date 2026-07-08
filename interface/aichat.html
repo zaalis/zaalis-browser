@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<style>
+  body {
+    --bg:#e8eaed; --menu:#f1f3f4; --row:#f1f3f4; --row-h:#e2e5e9; --text:#202124;
+    --muted:#5f6368; --border:#d2d5d9; --accent:#1a73e8; --danger:#d93025;
+    --bubble-user:#1a73e8; --bubble-user-text:#ffffff; --bubble-ai:#ffffff;
+  }
+  body.dark {
+    --bg:#202124; --menu:#303134; --row:#303134; --row-h:#3c4043; --text:#e8eaed;
+    --muted:#9aa0a6; --border:#3c4043; --accent:#8ab4f8; --danger:#f28b82;
+    --bubble-user:#8ab4f8; --bubble-user-text:#202124; --bubble-ai:#3c4043;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; overflow:hidden; }
+  body {
+    font-family:"Segoe UI",Arial,sans-serif; background:var(--menu); color:var(--text);
+    display:flex; flex-direction:column; user-select:none; -webkit-user-select:none;
+    border-left:1px solid var(--border); border-top-left-radius:16px; overflow:hidden;
+    position:relative;
+  }
+
+  /* ----- En-tete ----- */
+  .head {
+    display:flex; align-items:center; gap:8px; height:50px; padding:0 10px;
+    border-bottom:1px solid var(--border); flex:none; background:var(--menu);
+  }
+  .head .ttl { flex:1; min-width:0; }
+  .head .ttl .t1 {
+    font-size:15px; font-weight:700;
+    background:linear-gradient(90deg,#4898ff,#00d4ff);
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+    display:inline-block;
+  }
+  .head .ttl .t2 { font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ibtn {
+    width:32px; height:32px; border-radius:50%; display:flex; align-items:center;
+    justify-content:center; color:var(--text); flex:none;
+    transition:background .12s ease, transform .22s cubic-bezier(.34,1.56,.64,1);
+  }
+  .ibtn:hover { background:var(--row-h); }
+  .ibtn:active { transform:scale(.82); }
+  svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+
+  /* ----- Messages ----- */
+  .chat {
+    flex:1; overflow-y:auto; padding:14px 12px 10px; display:flex;
+    flex-direction:column; gap:10px; background:var(--bg);
+  }
+  .msg { max-width:86%; padding:9px 13px; border-radius:16px; font-size:13.5px;
+         line-height:1.5; white-space:pre-wrap; word-wrap:break-word;
+         user-select:text; -webkit-user-select:text;
+         animation:pop .22s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes pop { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+  .msg.still { animation:none; }
+  .msg.user { align-self:flex-end; background:var(--bubble-user); color:var(--bubble-user-text); border-bottom-right-radius:5px; }
+  .msg.ai   { align-self:flex-start; background:var(--bubble-ai); border:1px solid var(--border); border-bottom-left-radius:5px; }
+  .msg.ai code { background:rgba(128,128,128,.16); padding:1px 5px; border-radius:4px;
+                 font-family:ui-monospace,Menlo,monospace; font-size:12px; }
+  .msg.ai b { font-weight:650; }
+  .empty-chat {
+    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:10px; color:var(--muted); font-size:13.5px; text-align:center; padding:0 26px;
+  }
+  .empty-chat .spark {
+    width:44px; height:44px; border-radius:14px;
+    background:linear-gradient(135deg,#4898ff,#00d4ff);
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 4px 16px rgba(72,152,255,.4);
+  }
+  .empty-chat .spark svg { width:24px; height:24px; fill:#fff; stroke:none; }
+  .typing { align-self:flex-start; display:flex; gap:5px; padding:12px 15px;
+            background:var(--bubble-ai); border:1px solid var(--border); border-radius:16px; border-bottom-left-radius:5px; }
+  .typing i { width:6px; height:6px; border-radius:50%; background:var(--accent); animation:blink 1s infinite; }
+  .typing i:nth-child(2){ animation-delay:.15s } .typing i:nth-child(3){ animation-delay:.3s }
+  @keyframes blink { 0%,100%{opacity:.25} 50%{opacity:1} }
+
+  /* ----- Zone de saisie ----- */
+  .composer { flex:none; padding:10px 12px 12px; background:var(--menu); border-top:1px solid var(--border); }
+  .composer .box {
+    display:flex; align-items:flex-end; gap:8px;
+    background:var(--bg); border:1px solid var(--border); border-radius:20px; padding:6px 6px 6px 14px;
+    transition:border-color .15s ease, box-shadow .15s ease;
+  }
+  .composer .box:focus-within { border-color:transparent; box-shadow:0 1px 10px rgba(72,152,255,.35); }
+  .composer textarea {
+    flex:1; border:none; outline:none; background:transparent; resize:none;
+    color:var(--text); font:inherit; font-size:13.5px; line-height:1.45;
+    max-height:110px; padding:4px 0;
+    user-select:text; -webkit-user-select:text;
+  }
+  .composer .send {
+    width:32px; height:32px; border-radius:50%; border:none; cursor:pointer; flex:none;
+    background:linear-gradient(135deg,#4898ff,#00d4ff); color:#fff;
+    display:flex; align-items:center; justify-content:center;
+    transition:transform .22s cubic-bezier(.34,1.56,.64,1), opacity .15s ease;
+  }
+  .composer .send:active { transform:scale(.82); }
+  .composer .send.off { opacity:.4; pointer-events:none; }
+  .composer .send svg { width:16px; height:16px; fill:currentColor; stroke:none; }
+
+  /* ----- Tiroir des conversations (3/4 de la largeur) ----- */
+  .drawer-backdrop {
+    position:absolute; inset:0; background:rgba(0,0,0,.25); opacity:0;
+    pointer-events:none; transition:opacity .2s ease; z-index:20;
+  }
+  body.drawer-open .drawer-backdrop { opacity:1; pointer-events:auto; }
+  .drawer {
+    position:absolute; top:0; bottom:0; left:0; width:75%;
+    background:var(--menu); border-right:1px solid var(--border);
+    transform:translateX(-102%); transition:transform .24s cubic-bezier(.2,.8,.2,1);
+    z-index:21; display:flex; flex-direction:column;
+    box-shadow:6px 0 22px rgba(0,0,0,.16);
+  }
+  body.drawer-open .drawer { transform:translateX(0); }
+  .drawer .dhead {
+    display:flex; align-items:center; gap:8px; height:50px; padding:0 10px;
+    border-bottom:1px solid var(--border); flex:none;
+  }
+  .drawer .dhead .t { flex:1; font-size:14px; font-weight:600; }
+  .newconv {
+    margin:10px; padding:9px 12px; border-radius:12px; border:1px dashed var(--border);
+    display:flex; align-items:center; gap:8px; font-size:13px; color:var(--accent);
+    transition:background .12s ease;
+  }
+  .newconv:hover { background:var(--row-h); }
+  .convs { flex:1; overflow-y:auto; padding:0 8px 10px; }
+  .conv {
+    display:flex; align-items:center; gap:8px; padding:9px 10px; border-radius:10px;
+    font-size:13px; transition:background .12s ease;
+  }
+  .conv:hover { background:var(--row-h); }
+  .conv.current { background:var(--row-h); font-weight:600; }
+  .conv .meta { flex:1; min-width:0; }
+  .conv .t { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .conv .n { font-size:11px; color:var(--muted); }
+  .conv .del {
+    width:24px; height:24px; border-radius:50%; display:none;
+    align-items:center; justify-content:center; color:var(--muted); flex:none;
+  }
+  .conv:hover .del { display:flex; }
+  .conv .del:hover { background:rgba(128,128,128,.2); color:var(--danger); }
+  .conv .del svg { width:14px; height:14px; }
+  .dempty { color:var(--muted); font-size:12.5px; text-align:center; padding:20px 12px; }
+</style>
+</head>
+
+<body>
+  <div class="head">
+    <div class="ibtn" id="menu" title="Conversations">
+      <svg viewBox="0 0 24 24"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+    </div>
+    <div class="ttl">
+      <div><span class="t1">zaalis IA</span></div>
+      <div class="t2" id="model-label"></div>
+    </div>
+    <div class="ibtn" id="newchat" title="Nouvelle conversation">
+      <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+    </div>
+    <div class="ibtn" id="close" title="Fermer">
+      <svg viewBox="0 0 24 24"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+    </div>
+  </div>
+
+  <div class="chat" id="chat"></div>
+
+  <div class="composer">
+    <div class="box">
+      <textarea id="input" rows="1" placeholder="Poser une question…"></textarea>
+      <button class="send" id="send" title="Envoyer">
+        <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="drawer-backdrop" id="backdrop"></div>
+  <div class="drawer">
+    <div class="dhead">
+      <div class="t">Conversations</div>
+      <div class="ibtn" id="drawer-close" title="Fermer">
+        <svg viewBox="0 0 24 24"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+      </div>
+    </div>
+    <div class="newconv" id="drawer-new">
+      <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M12 5v14M5 12h14"/></svg>
+      Nouvelle conversation
+    </div>
+    <div class="convs" id="convs"></div>
+  </div>
+
+<script>
+  const wv = window.chrome && window.chrome.webview;
+  const SEP = "\x1f";
+  const post = (...p) => { if (wv) wv.postMessage(p.join(SEP)); };
+  const $ = id => document.getElementById(id);
+  const chatEl = $("chat"), input = $("input"), sendBtn = $("send");
+
+  let busy = false;
+  let currentId = null;
+
+  // Mise en forme minimale et sure : echappe tout, puis **gras** et `code`.
+  function fmt(s) {
+    let h = String(s).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+    h = h.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
+    h = h.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    return h;
+  }
+
+  function renderMessages(d) {
+    currentId = d.id;
+    busy = !!d.busy;
+    sendBtn.classList.toggle("off", busy);
+    chatEl.innerHTML = "";
+    const msgs = Array.isArray(d.messages) ? d.messages : [];
+    if (!msgs.length && !busy) {
+      chatEl.innerHTML =
+        '<div class="empty-chat">' +
+          '<div class="spark"><svg viewBox="0 0 24 24"><path d="M12 2l2.2 6L20 10l-5.8 2L12 18l-2.2-6L4 10l5.8-2z"/></svg></div>' +
+          '<div><b>zaalis IA</b><br>Pose une question, ou fais un clic droit sur une page puis « Demander à l’IA » pour la résumer.</div>' +
+        '</div>';
+      return;
+    }
+    msgs.forEach(m => {
+      const el = document.createElement("div");
+      el.className = "msg " + (m.role === "user" ? "user" : "ai");
+      if (m.role === "user") el.textContent = m.content;
+      else el.innerHTML = fmt(m.content);
+      chatEl.appendChild(el);
+    });
+    if (busy) {
+      const t = document.createElement("div");
+      t.className = "typing"; t.innerHTML = "<i></i><i></i><i></i>";
+      chatEl.appendChild(t);
+    }
+    // Seul le dernier message anime son apparition (pas tout l'historique).
+    const all = chatEl.querySelectorAll(".msg");
+    for (let i = 0; i < all.length - 1; i++) all[i].classList.add("still");
+    chatEl.scrollTop = chatEl.scrollHeight;
+  }
+
+  function renderConvs(d) {
+    const box = $("convs"); box.innerHTML = "";
+    const items = Array.isArray(d.items) ? d.items : [];
+    if (!items.length) {
+      box.innerHTML = '<div class="dempty">Aucune conversation pour le moment.</div>';
+      return;
+    }
+    items.forEach(it => {
+      const el = document.createElement("div");
+      el.className = "conv" + (it.id === d.currentId ? " current" : "");
+      const meta = document.createElement("div"); meta.className = "meta";
+      const t = document.createElement("div"); t.className = "t"; t.textContent = it.title || "Conversation";
+      const n = document.createElement("div"); n.className = "n";
+      n.textContent = it.count + " message" + (it.count > 1 ? "s" : "");
+      meta.appendChild(t); meta.appendChild(n); el.appendChild(meta);
+      const del = document.createElement("div"); del.className = "del"; del.title = "Supprimer";
+      del.innerHTML = '<svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>';
+      del.onclick = e => { e.stopPropagation(); post("aiChatDelete", it.id); };
+      el.appendChild(del);
+      el.onclick = () => { post("aiChatSelect", it.id); setDrawer(false); };
+      box.appendChild(el);
+    });
+  }
+
+  function setDrawer(open) { document.body.classList.toggle("drawer-open", open); }
+
+  function send() {
+    const v = input.value.trim();
+    if (!v || busy) return;
+    input.value = "";
+    autosize();
+    post("aiChatSend", v);
+  }
+
+  function autosize() {
+    input.style.height = "auto";
+    input.style.height = Math.min(110, input.scrollHeight) + "px";
+  }
+
+  $("menu").onclick = () => setDrawer(true);
+  $("backdrop").onclick = () => setDrawer(false);
+  $("drawer-close").onclick = () => setDrawer(false);
+  $("drawer-new").onclick = () => { post("aiChatNew"); setDrawer(false); };
+  $("newchat").onclick = () => post("aiChatNew");
+  $("close").onclick = () => post("closeAiPanel");
+  sendBtn.onclick = send;
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+  input.addEventListener("input", autosize);
+
+  if (wv) wv.addEventListener("message", e => {
+    const d = e.data;
+    if (!d) return;
+    if (d.type === "aiPanelState") {
+      document.body.classList.toggle("dark", d.theme === "dark");
+      $("model-label").textContent = d.modelLabel ? (d.modelLabel + " · " + (d.providerLabel || "")) : "";
+    }
+    else if (d.type === "aiChatMessages") renderMessages(d);
+    else if (d.type === "aiChats") renderConvs(d);
+  });
+
+  post("aiPanelReady");
+</script>
+</body>
+</html>
