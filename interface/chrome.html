@@ -182,7 +182,7 @@
       linear-gradient(90deg,
         rgba(0,120,255,.85), rgba(0,212,255,.85), rgba(120,90,255,.85),
         rgba(0,212,255,.85), rgba(0,120,255,.85));
-    background-size: 220% 100%;
+    background-size: 200% 100%;
     filter: blur(11px); opacity: .78;
     animation: ai-flow 7s linear infinite;
     pointer-events: none; z-index: -1;
@@ -198,9 +198,13 @@
     animation: ai-drift 11.3s ease-in-out infinite alternate;
     pointer-events: none; z-index: -1;
   }
+  /* Boucle sans couture : le degrade est un palindrome (memes couleurs aux
+     deux bords) et l'arriere-plan se repete (background-repeat par defaut).
+     On defile d'exactement une tuile (200% avec background-size 200%) : la
+     tuile suivante est identique -> aucun saut a la reprise. */
   @keyframes ai-flow {
     from { background-position: 0% 50%; }
-    to   { background-position: 220% 50%; }
+    to   { background-position: 200% 50%; }
   }
   /* Deplacement libre des taches : x/y/rotation avec des amplitudes qui
      ne se re-alignent jamais parfaitement -> impression naturelle. */
@@ -277,7 +281,7 @@
     width: 26px; height: 26px; border-radius: 50%; flex: none;
     display: flex; align-items: center; justify-content: center;
     font-size: 12px; font-weight: 700; color: #fff; overflow: hidden;
-    background: #9aa0a6;
+    background: #9aa0a6; margin-top: 3px;
     transition: box-shadow .15s ease, transform .18s cubic-bezier(.34,1.56,.64,1);
   }
   .profile-chip:hover { box-shadow: 0 0 0 3px var(--surface-h); }
@@ -289,14 +293,14 @@
     max-width: calc(100vw - 16px);
     background: var(--surface); color: var(--text);
     border: 1px solid var(--border); border-radius: 18px;
-    padding: 12px 14px 12px; z-index: 60;
+    padding: 14px 16px 16px; z-index: 60;
     box-shadow: 0 10px 34px rgba(0,0,0,.28);
     opacity: 0; pointer-events: none;
     transform: translateY(-6px) scale(.98); transform-origin: top right;
     transition: opacity .16s cubic-bezier(.2,.8,.2,1), transform .16s cubic-bezier(.2,.8,.2,1);
   }
   body.profile-open .profile-pop { opacity: 1; pointer-events: auto; transform: none; }
-  .pp-head { display: flex; align-items: center; margin-bottom: 4px; }
+  .pp-head { display: flex; align-items: center; margin-bottom: 6px; }
   .pp-head .pp-mail {
     flex: 1; text-align: center; font-size: 13px; color: var(--muted);
     padding-left: 26px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -307,7 +311,7 @@
     color: var(--muted); font-size: 15px;
   }
   .pp-close:hover { background: var(--surface-h); color: var(--text); }
-  .pp-avatar-wrap { position: relative; width: 80px; margin: 8px auto 10px; }
+  .pp-avatar-wrap { position: relative; width: 80px; margin: 12px auto 16px; }
   .pp-avatar {
     width: 80px; height: 80px; border-radius: 50%; overflow: hidden;
     display: flex; align-items: center; justify-content: center;
@@ -328,7 +332,7 @@
     white-space: nowrap; overflow: hidden;
   }
   .pp-hello .nm { overflow: hidden; text-overflow: ellipsis; }
-  .pp-sub { text-align: center; font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+  .pp-sub { text-align: center; font-size: 12.5px; color: var(--muted); margin-top: 7px; }
   .pp-edit {
     width: 22px; height: 22px; border-radius: 50%; flex: none;
     display: flex; align-items: center; justify-content: center; color: var(--muted);
@@ -342,29 +346,29 @@
     outline: none; font-family: inherit;
   }
   .pp-name-input:focus { border-color: var(--accent); }
-  .pp-colors { display: flex; justify-content: center; gap: 8px; margin: 12px 0 2px; }
+  .pp-colors { display: flex; justify-content: center; gap: 14px; margin: 20px 0 8px; }
   .pp-dot {
-    width: 20px; height: 20px; border-radius: 50%;
+    width: 22px; height: 22px; border-radius: 50%;
     transition: transform .12s ease, box-shadow .12s ease;
   }
   .pp-dot:hover { transform: scale(1.15); }
   .pp-dot.sel { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent); }
   .pp-primary {
-    display: block; margin: 12px auto 0; width: fit-content;
-    padding: 8px 20px; border-radius: 999px; border: 1px solid var(--border);
+    display: block; margin: 18px auto 0; width: fit-content;
+    padding: 9px 22px; border-radius: 999px; border: 1px solid var(--border);
     color: var(--accent); font-size: 13.5px; font-weight: 500; text-align: center;
   }
   .pp-primary:hover { background: var(--surface-h); }
-  .pp-actions { display: flex; gap: 2px; margin-top: 14px; border-radius: 14px; overflow: hidden; }
+  .pp-actions { display: flex; gap: 2px; margin-top: 18px; border-radius: 14px; overflow: hidden; }
   .pp-action {
     flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
     padding: 12px 8px; background: var(--surface-h); font-size: 13px;
   }
   .pp-action:hover { background: var(--border); }
   .pp-action svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
-  .pp-list { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; max-height: 140px; overflow: auto; }
-  .pp-list-title { font-size: 11.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; margin: 2px 6px 6px; }
-  .pp-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 10px; font-size: 13.5px; }
+  .pp-list { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; max-height: 150px; overflow: auto; }
+  .pp-list-title { font-size: 11.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; margin: 2px 6px 8px; }
+  .pp-row { display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 10px; font-size: 13.5px; }
   .pp-row:hover { background: var(--surface-h); }
   .pp-row .nm { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pp-row .mini {
@@ -380,7 +384,7 @@
   }
   .pp-row:hover .del { display: flex; }
   .pp-row .del:hover { background: var(--danger); color: #fff; }
-  .pp-foot { margin-top: 10px; text-align: center; font-size: 11.5px; color: var(--muted); }
+  .pp-foot { margin-top: 14px; text-align: center; font-size: 11.5px; color: var(--muted); }
   .bm {
     display: flex; align-items: center; gap: 6px;
     height: 26px; padding: 0 6px 0 10px;

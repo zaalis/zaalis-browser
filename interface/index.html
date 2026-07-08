@@ -86,10 +86,12 @@
         .search-bar-wrapper.ai::before {
             content: ""; position: absolute; inset: -2px; border-radius: 26px;
             background: linear-gradient(90deg, rgba(0,120,255,.85), rgba(0,212,255,.85), rgba(120,90,255,.85), rgba(0,212,255,.85), rgba(0,120,255,.85));
-            background-size: 220% 100%;
+            background-size: 200% 100%;
             filter: blur(14px); opacity: .8;
             animation: ai-flow 7s linear infinite; pointer-events: none; z-index: 1;
         }
+        /* Boucle sans couture : palindrome + defilement d'exactement une tuile
+           (200% avec background-size 200%, l'arriere-plan se repete). */
         @keyframes ai-flow { from { background-position: 0% 50%; } to { background-position: 200% 50%; } }
 
         /* ---------- Raccourcis (facon Google) ---------- */
