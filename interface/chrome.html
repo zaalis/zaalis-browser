@@ -85,12 +85,29 @@
     box-shadow: 0 -1px 0 rgba(0,0,0,.03), 0 -3px 10px rgba(0,0,0,.06);
   }
   .tab.dragging { box-shadow: 0 6px 18px rgba(0,0,0,.30); cursor: grabbing; z-index: 10; }
-  /* Onglets lies par la vue fractionnee : groupe facon Chrome
-     (pilule coloree sous l'ensemble, cercle sur chaque onglet). */
+  /* Onglets lies par la vue fractionnee : les deux membres forment un groupe
+     compact (facon Google) qui occupe ~la largeur d'un seul onglet, pas deux.
+     Chaque membre se reduit a sa favicon (+ fermer au survol). */
   .tab.split {
     position: relative;
+    min-width: 0; max-width: 54px;
+    padding: 0 6px; justify-content: center;
     background: linear-gradient(180deg, rgba(72,152,255,.10), rgba(0,212,255,.14));
   }
+  .tab.split .title { display: none; }
+  .tab.split .tab-fav {
+    width: 16px; height: 16px; border-radius: 4px; flex: none;
+    position: relative; overflow: hidden;
+  }
+  .tab.split .tab-fav.fallback { background: linear-gradient(90deg, #4898ff, #00ffff); }
+  .tab.split .tab-fav img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  /* Fermer masque au repos, apparait au survol par-dessus la favicon. */
+  .tab.split .close {
+    position: absolute; top: 50%; right: 4px; transform: translateY(-50%);
+    width: 16px; height: 16px; opacity: 0; transition: opacity .12s ease;
+    background: var(--surface-h);
+  }
+  .tab.split:hover .close { opacity: 1; }
   .tab.split:hover { background: linear-gradient(180deg, rgba(72,152,255,.16), rgba(0,212,255,.22)); }
   .tab.split.active {
     background: linear-gradient(180deg, rgba(72,152,255,.22), rgba(0,212,255,.30));
@@ -379,6 +396,148 @@
   .si-item .si-tx b { font-weight: 600; color: var(--text); }
   .si-item.sel { background: var(--surface-h); }
 
+  /* ---------- Lanceur d'applications (facon Google) ---------- */
+  /* Bouton : deux carres arrondis superposes, legerement en eventail. Le fond
+     s'ouvre un peu plus au survol (animation douce). */
+  .launcher-btn {
+    width: 30px; height: 26px; border-radius: 8px; flex: none;
+    position: relative; margin-top: 3px;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .15s ease, transform .18s cubic-bezier(.34,1.56,.64,1);
+  }
+  .launcher-btn:hover { background: var(--surface-h); }
+  .launcher-btn:active { transform: scale(.9); }
+  .lb-sq {
+    position: absolute; width: 15px; height: 15px; border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    transition: transform .2s cubic-bezier(.34,1.4,.64,1);
+  }
+  .lb-back {
+    background: var(--surface-h); border: 1px solid var(--border);
+    transform: translate(-4px, 3px) rotate(-16deg);
+  }
+  body.dark .lb-back { background: #3a3b3e; }
+  .lb-front {
+    background: linear-gradient(135deg, #4898ff, #00d4ff);
+    transform: translate(3px, -2px) rotate(7deg);
+    box-shadow: 0 1px 3px rgba(0,0,0,.22);
+  }
+  .lb-front svg { width: 9px; height: 9px; }
+  .lb-front circle { fill: #fff; }
+  .lb-back svg { width: 8px; height: 8px; }
+  .lb-back circle { fill: var(--muted); }
+  .launcher-btn:hover .lb-back  { transform: translate(-6px, 4px) rotate(-25deg); }
+  .launcher-btn:hover .lb-front { transform: translate(4px, -3px) rotate(11deg); }
+
+  /* Popup facon Google : grille d'apps arrondie. */
+  .launcher-pop {
+    position: absolute; top: 136px; right: 8px; width: 340px;
+    max-width: calc(100vw - 16px);
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); border-radius: 20px;
+    padding: 14px 16px 16px; z-index: 60;
+    box-shadow: 0 10px 34px rgba(0,0,0,.28);
+    opacity: 0; pointer-events: none;
+    transform: translateY(-6px) scale(.98); transform-origin: top right;
+    transition: opacity .16s cubic-bezier(.2,.8,.2,1), transform .16s cubic-bezier(.2,.8,.2,1);
+  }
+  body.launcher-open .launcher-pop { opacity: 1; pointer-events: auto; transform: none; }
+  .lp-head { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+  .lp-title { flex: 1; font-size: 17px; font-weight: 500; padding-left: 4px; }
+  .lp-edit {
+    width: 34px; height: 34px; border-radius: 50%; flex: none;
+    display: flex; align-items: center; justify-content: center; color: var(--muted);
+    transition: background .12s ease, color .12s ease;
+  }
+  .lp-edit:hover { background: var(--surface-h); color: var(--text); }
+  body.launcher-edit .lp-edit { background: var(--surface-h); color: var(--accent); }
+  .lp-edit svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .lp-modes {
+    display: flex; gap: 8px; margin: 0; max-height: 0; overflow: hidden; opacity: 0;
+    transition: max-height .22s ease, opacity .18s ease, margin .22s ease;
+  }
+  body.launcher-edit .lp-modes { max-height: 48px; opacity: 1; margin: 6px 2px 4px; }
+  .lp-mode {
+    flex: 1; text-align: center; padding: 8px 6px; border-radius: 999px; font-size: 13px;
+    border: 1px solid var(--border); color: var(--muted); cursor: default;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+  }
+  .lp-mode:hover { background: var(--surface-h); }
+  .lp-mode.sel { background: rgba(26,115,232,.14); border-color: transparent; color: var(--accent); }
+  body.dark .lp-mode.sel { background: rgba(138,180,248,.18); }
+  .lp-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
+    max-height: 348px; overflow-y: auto; overflow-x: hidden; padding: 8px 0 2px;
+  }
+  .lp-tile {
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    padding: 12px 4px 10px; border-radius: 14px; position: relative; cursor: pointer;
+    transition: background .12s ease;
+  }
+  .lp-tile:hover { background: var(--surface-h); }
+  .lp-ic {
+    width: 46px; height: 46px; border-radius: 50%; background: var(--input-bg);
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+    position: relative; box-shadow: 0 1px 2px rgba(0,0,0,.12);
+    transition: box-shadow .12s ease;
+  }
+  .lp-tile:hover .lp-ic { box-shadow: 0 1px 6px rgba(0,0,0,.2); }
+  .lp-ic .fallback { display: none; position: absolute; inset: 0; border-radius: 50%; background: linear-gradient(90deg, #4898ff, #00ffff); }
+  .lp-ic .fallback.show { display: block; }
+  .lp-ic img { position: relative; width: 26px; height: 26px; object-fit: contain; }
+  .lp-label { font-size: 12px; text-align: center; max-width: 96px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lp-del {
+    position: absolute; top: 2px; right: 12px; width: 20px; height: 20px; border-radius: 50%;
+    background: var(--surface); color: var(--muted); box-shadow: 0 1px 3px rgba(0,0,0,.22);
+    display: none; align-items: center; justify-content: center; font-size: 13px; line-height: 1;
+  }
+  .lp-tile:hover .lp-del { display: flex; }
+  .lp-del:hover { color: var(--danger); }
+  .lp-add .lp-ic { background: transparent; box-shadow: inset 0 0 0 1.5px var(--border); }
+  .lp-add:hover .lp-ic { box-shadow: inset 0 0 0 1.5px var(--muted); }
+  .lp-add .lp-ic svg { width: 20px; height: 20px; stroke: var(--muted); fill: none; stroke-width: 2; stroke-linecap: round; }
+  .lp-empty { grid-column: 1 / -1; text-align: center; color: var(--muted); font-size: 12.5px; padding: 6px 8px 2px; }
+
+  /* Mini-menu clic droit (supprimer un raccourci creatif). */
+  .lp-menu {
+    position: absolute; z-index: 90; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.3); padding: 4px; min-width: 160px;
+    opacity: 0; pointer-events: none; transform: scale(.96); transform-origin: top left;
+    transition: opacity .12s ease, transform .12s ease;
+  }
+  body.lp-menu-open .lp-menu { opacity: 1; pointer-events: auto; transform: none; }
+  .lp-menu-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; font-size: 13.5px; color: var(--text); cursor: default; }
+  .lp-menu-item:hover { background: var(--surface-h); }
+  .lp-menu-item.danger:hover { color: var(--danger); }
+  .lp-menu-item svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* Modale d'ajout d'un raccourci (mode creatif). */
+  .lch-mask {
+    position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,.32);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none; transition: opacity .16s ease;
+  }
+  body.lch-modal-open .lch-mask { opacity: 1; pointer-events: auto; }
+  .lch-modal {
+    width: 340px; max-width: calc(100vw - 32px); background: var(--surface); color: var(--text);
+    border-radius: 16px; padding: 20px 22px 16px; box-shadow: 0 18px 50px rgba(0,0,0,.4);
+    transform: translateY(8px) scale(.98); transition: transform .16s cubic-bezier(.2,.8,.2,1);
+  }
+  body.lch-modal-open .lch-modal { transform: none; }
+  .lch-modal h3 { margin: 0 0 16px; font-size: 17px; font-weight: 500; }
+  .lch-modal input {
+    width: 100%; box-sizing: border-box; padding: 11px 13px; font-size: 14px; font-family: inherit;
+    color: var(--text); background: transparent; border: 1px solid var(--border); border-radius: 10px;
+    outline: none; margin-bottom: 14px;
+  }
+  .lch-modal input:focus { border-color: var(--accent); }
+  .lch-actions { display: flex; justify-content: flex-end; gap: 10px; }
+  .lch-btn { padding: 8px 18px; border-radius: 999px; border: none; cursor: pointer; font-size: 13.5px; font-family: inherit; font-weight: 500; background: transparent; color: var(--accent); }
+  .lch-btn:hover { background: rgba(26,115,232,.10); }
+  .lch-btn.primary { background: var(--accent); color: #fff; }
+  .lch-btn.primary:disabled { background: var(--border); color: var(--muted); cursor: default; }
+
   /* ---------- Controle media ---------- */
   .media-pop {
     position: absolute; top: 94px; right: 10px; width: 420px; max-width: calc(100vw - 20px);
@@ -457,10 +616,29 @@
 
   <div class="bookmarks-bar">
     <div class="bookmarks" id="bookmarks"></div>
+    <div class="launcher-btn" id="launcher-btn" title="Applications">
+      <span class="lb-sq lb-back"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><circle cx="18" cy="18" r="2.4"/></svg></span>
+      <span class="lb-sq lb-front"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.6"/><circle cx="18" cy="6" r="2.6"/><circle cx="6" cy="18" r="2.6"/><circle cx="18" cy="18" r="2.6"/><circle cx="12" cy="12" r="2.6"/></svg></span>
+    </div>
     <div class="profile-chip" id="profile-btn" title="Profil"></div>
   </div>
 
   <div class="profile-pop" id="profile-pop"></div>
+
+  <div class="launcher-pop" id="launcher-pop"></div>
+  <div class="lp-menu" id="lp-menu"></div>
+
+  <div class="lch-mask" id="lch-mask">
+    <div class="lch-modal" id="lch-modal">
+      <h3>Ajouter un raccourci</h3>
+      <input id="lch-name" type="text" placeholder="Nom" autocomplete="off">
+      <input id="lch-url" type="text" placeholder="URL" autocomplete="off">
+      <div class="lch-actions">
+        <button class="lch-btn" id="lch-cancel">Annuler</button>
+        <button class="lch-btn primary" id="lch-ok" disabled>OK</button>
+      </div>
+    </div>
+  </div>
 
   <div class="media-pop" id="media-pop">
     <div id="media-content"></div>
@@ -525,6 +703,21 @@
         el.addEventListener("pointermove", onMove);
         post("tabMenu", t.id);
       });
+      // En vue fractionnee, l'onglet se resume a sa favicon (groupe compact).
+      if (inSplit) {
+        const fav = document.createElement("div"); fav.className = "tab-fav";
+        const src = faviconUrl(t.url);
+        if (src && !isInternal(t.url)) {
+          const img = document.createElement("img"); img.alt = "";
+          img.onerror = () => { img.remove(); fav.classList.add("fallback"); };
+          img.src = src;
+          fav.appendChild(img);
+        } else {
+          fav.classList.add("fallback");
+        }
+        el.appendChild(fav);
+        el.title = t.title && t.title.trim() ? t.title : "Nouvel onglet";
+      }
       const title = document.createElement("div");
       title.className = "title";
       title.textContent = t.title && t.title.trim() ? t.title : "Nouvel onglet";
@@ -596,6 +789,7 @@
     // Profil : rond de la barre de favoris + popup s'il est ouvert.
     renderProfileChip();
     if (profileOpen && !profileEditingName && !profileCreating) renderProfilePop();
+    if (typeof launcherOpen !== "undefined" && launcherOpen) renderLauncher();
 
     // Barre de progression : demarre/arrete au changement d'etat de chargement.
     const loading = !!state.active.loading;
@@ -689,6 +883,7 @@
     $("media").classList.toggle("active", mediaOpen);
     if (mediaOpen) {
       if (profileOpen) setProfileOpen(false);
+      if (typeof launcherOpen !== "undefined" && launcherOpen) setLauncherOpen(false);
       post("getMediaState");
       renderMedia();
       if (!mediaPoll) mediaPoll = setInterval(()=>post("getMediaState"), 1000);
@@ -893,6 +1088,7 @@
     document.body.classList.toggle("profile-open", profileOpen);
     if (profileOpen) {
       if (mediaOpen) setMediaOpen(false);
+      if (launcherOpen) setLauncherOpen(false);
       renderProfilePop();
     }
     reportHeight();
@@ -900,12 +1096,144 @@
 
   $("profile-btn").onclick = () => setProfileOpen(!profileOpen);
 
-  // Clic hors du popup -> fermeture (profil et media).
+  // Clic hors du popup -> fermeture (profil, media, lanceur, suggestions).
   document.addEventListener("pointerdown", (e) => {
     if (profileOpen && !e.target.closest("#profile-pop, #profile-btn")) setProfileOpen(false);
     if (mediaOpen && !e.target.closest("#media-pop, #media")) setMediaOpen(false);
     if (suggestOpen && !e.target.closest("#omni-suggest, #address")) closeSuggest();
+    if (lpMenuOpen && !e.target.closest("#lp-menu")) closeLpMenu();
+    if (launcherOpen && !e.target.closest("#launcher-pop, #launcher-btn, #lp-menu")) setLauncherOpen(false);
   });
+
+  // ----- Lanceur d'applications (facon Google) -----
+  let launcherOpen = false, lpMenuOpen = false;
+  const launcherPop = $("launcher-pop");
+  const lpMenu = $("lp-menu");
+
+  function launcherState(){
+    return {
+      mode: state.launcherMode === "creatif" ? "creatif" : "travail",
+      work: Array.isArray(state.launcherWork) ? state.launcherWork : [],
+      apps: Array.isArray(state.launcherApps) ? state.launcherApps : [],
+    };
+  }
+  function lpFaviconTile(item, removable){
+    const tile = document.createElement("div");
+    tile.className = "lp-tile"; tile.title = item.url;
+    const ic = document.createElement("div"); ic.className = "lp-ic";
+    const fb = document.createElement("div"); fb.className = "fallback"; ic.appendChild(fb);
+    const src = faviconUrl(item.url);
+    if (src) {
+      const img = document.createElement("img"); img.alt = "";
+      img.onerror = () => { img.remove(); fb.classList.add("show"); };
+      img.src = src; ic.appendChild(img);
+    } else { fb.classList.add("show"); }
+    tile.appendChild(ic);
+    const label = document.createElement("div"); label.className = "lp-label";
+    let name = item.title && item.title.trim() ? item.title : "";
+    if (!name) { try { name = new URL(item.url).hostname.replace(/^www\./, ""); } catch { name = item.url; } }
+    label.textContent = name;
+    tile.appendChild(label);
+    tile.onclick = () => { post("launcherOpen", item.url); setLauncherOpen(false); };
+    if (removable) {
+      const del = document.createElement("div"); del.className = "lp-del"; del.textContent = "×";
+      del.title = "Supprimer le raccourci";
+      del.onclick = (e) => { e.stopPropagation(); post("launcherRemove", item.url); };
+      tile.appendChild(del);
+      tile.addEventListener("contextmenu", (e) => { e.preventDefault(); openLpMenu(e.clientX, e.clientY, item.url); });
+    }
+    return tile;
+  }
+  function renderLauncher(){
+    const ls = launcherState();
+    launcherPop.innerHTML = "";
+    document.body.classList.toggle("launcher-edit", launcherEditing);
+
+    const head = document.createElement("div"); head.className = "lp-head";
+    const title = document.createElement("div"); title.className = "lp-title"; title.textContent = "Applications";
+    head.appendChild(title);
+    const edit = document.createElement("div"); edit.className = "lp-edit"; edit.title = "Choisir un mode";
+    edit.innerHTML = '<svg viewBox="0 0 24 24"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg>';
+    edit.onclick = () => { launcherEditing = !launcherEditing; renderLauncher(); setTimeout(reportHeight, 230); };
+    head.appendChild(edit);
+    launcherPop.appendChild(head);
+
+    const modes = document.createElement("div"); modes.className = "lp-modes";
+    [["travail","Travail"],["creatif","Créatif"]].forEach(([m, lbl]) => {
+      const chip = document.createElement("div");
+      chip.className = "lp-mode" + (ls.mode === m ? " sel" : "");
+      chip.textContent = lbl;
+      chip.onclick = () => { if (ls.mode !== m) post("launcherSetMode", m); };
+      modes.appendChild(chip);
+    });
+    launcherPop.appendChild(modes);
+
+    const grid = document.createElement("div"); grid.className = "lp-grid";
+    if (ls.mode === "travail") {
+      ls.work.forEach(it => grid.appendChild(lpFaviconTile(it, false)));
+    } else {
+      ls.apps.forEach(it => grid.appendChild(lpFaviconTile(it, true)));
+      const add = document.createElement("div"); add.className = "lp-tile lp-add"; add.title = "Ajouter un raccourci";
+      add.innerHTML = '<div class="lp-ic"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div><div class="lp-label">Ajouter</div>';
+      add.onclick = () => openLchModal();
+      grid.appendChild(add);
+      if (!ls.apps.length) {
+        const hint = document.createElement("div"); hint.className = "lp-empty";
+        hint.textContent = "Ajoutez vos propres raccourcis avec le +.";
+        grid.appendChild(hint);
+      }
+    }
+    launcherPop.appendChild(grid);
+  }
+  let launcherEditing = false;
+  function setLauncherOpen(open){
+    launcherOpen = open;
+    if (!open) { launcherEditing = false; closeLpMenu(); }
+    document.body.classList.toggle("launcher-open", launcherOpen);
+    if (launcherOpen) {
+      if (profileOpen) setProfileOpen(false);
+      if (mediaOpen) setMediaOpen(false);
+      renderLauncher();
+    }
+    reportHeight();
+  }
+  $("launcher-btn").onclick = () => setLauncherOpen(!launcherOpen);
+
+  // Mini-menu clic droit (mode creatif).
+  function openLpMenu(x, y, url){
+    lpMenu.innerHTML = "";
+    const item = document.createElement("div"); item.className = "lp-menu-item danger";
+    item.innerHTML = '<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg><span>Supprimer le raccourci</span>';
+    item.onclick = () => { post("launcherRemove", url); closeLpMenu(); };
+    lpMenu.appendChild(item);
+    lpMenu.style.left = Math.min(x, window.innerWidth - 176) + "px";
+    lpMenu.style.top = y + "px";
+    lpMenuOpen = true; document.body.classList.add("lp-menu-open");
+  }
+  function closeLpMenu(){ if (!lpMenuOpen) return; lpMenuOpen = false; document.body.classList.remove("lp-menu-open"); }
+
+  // Modale d'ajout (mode creatif).
+  const lchMask = $("lch-mask"), lchName = $("lch-name"), lchUrl = $("lch-url"), lchOk = $("lch-ok"), lchCancel = $("lch-cancel");
+  function openLchModal(){
+    lchName.value = ""; lchUrl.value = ""; lchOk.disabled = true;
+    document.body.classList.add("lch-modal-open");
+    setTimeout(() => lchName.focus(), 30);
+  }
+  function closeLchModal(){ document.body.classList.remove("lch-modal-open"); }
+  function submitLchModal(){
+    const url = lchUrl.value.trim();
+    if (!url) return;
+    post("launcherAdd", url, lchName.value.trim());
+    closeLchModal();
+  }
+  lchUrl.addEventListener("input", () => { lchOk.disabled = !lchUrl.value.trim(); });
+  lchOk.onclick = submitLchModal;
+  lchCancel.onclick = closeLchModal;
+  lchMask.addEventListener("pointerdown", (e) => { if (e.target === lchMask) closeLchModal(); });
+  [lchName, lchUrl].forEach(el => el.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); submitLchModal(); }
+    else if (e.key === "Escape") { e.preventDefault(); closeLchModal(); }
+  }));
 
   // ----- Reordonnancement des onglets au pointeur (facon Chrome) -----
   // L'onglet attrape suit le curseur (net, pas de fantome) ; les autres
@@ -1142,6 +1470,7 @@
     const pops = [];
     if (mediaOpen) pops.push($("media-pop"));
     else if (profileOpen) pops.push($("profile-pop"));
+    else if (typeof launcherOpen !== "undefined" && launcherOpen) pops.push($("launcher-pop"));
     if (typeof suggestOpen !== "undefined" && suggestOpen && $("omni-suggest").children.length) pops.push($("omni-suggest"));
     if (pops.length) {
       let L = Infinity, T = Infinity, R = -Infinity, B = -Infinity;

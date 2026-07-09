@@ -120,6 +120,28 @@ let bookmarks = [];   // { url, title }
 let shortcuts = [];   // { url, title } — home page tiles
 let history   = [];   // { url, title }
 
+// ----- Lanceur d'applications (facon Google) --------------------------------
+// Deux modes par profil : « travail » = grille preremplie d'apps Google (icones
+// via favicon, non modifiable) ; « creatif » = raccourcis ajoutes/supprimes par
+// l'utilisateur. Persiste par profil dans launcher.json.
+const WORK_APPS = [
+  { url: 'https://myaccount.google.com', title: 'Compte' },
+  { url: 'https://drive.google.com',     title: 'Drive' },
+  { url: 'https://mail.google.com',      title: 'Gmail' },
+  { url: 'https://www.youtube.com',      title: 'YouTube' },
+  { url: 'https://gemini.google.com',    title: 'Gemini' },
+  { url: 'https://maps.google.com',      title: 'Maps' },
+  { url: 'https://www.google.com',       title: 'Recherche' },
+  { url: 'https://calendar.google.com',  title: 'Agenda' },
+  { url: 'https://news.google.com',      title: 'Actualités' },
+  { url: 'https://photos.google.com',    title: 'Photos' },
+  { url: 'https://meet.google.com',      title: 'Meet' },
+  { url: 'https://translate.google.com', title: 'Traduction' },
+  { url: 'https://docs.google.com',      title: 'Docs' },
+];
+let launcherMode = 'travail';   // 'travail' | 'creatif'
+let launcherApps = [];          // mode creatif : { url, title }
+
 // Mode recherche IA (zaalis labs ide) : etat unique partage entre la barre
 // d'adresse (chrome.html) et la barre centrale de l'accueil (index.html) pour
 // que le degrade IA s'affiche simultanement sur les deux. Session uniquement.
@@ -172,14 +194,15 @@ function createProfile(name) {
   currentProfileId = p.id;
   saveProfiles();
   saveSettings();
-  pushState();
+  refreshAfterProfileSwitch();   // nouveau profil = donnees vierges, bien separees
 }
 
 function selectProfile(id) {
   if (id && !profileById(id)) return;
+  if ((id || '') === currentProfileId) return;
   currentProfileId = id || '';
   saveSettings();
-  pushState();
+  refreshAfterProfileSwitch();   // bascule = jeu de donnees du profil cible
 }
 
 function renameProfile(id, name) {
@@ -202,9 +225,18 @@ function setProfileColor(id, color) {
 function deleteProfile(id) {
   const i = profiles.findIndex(p => p.id === id);
   if (i < 0) return;
+  const wasCurrent = currentProfileId === id;
   profiles.splice(i, 1);
   try { fs.unlinkSync(avatarPath(id)); } catch {}
-  if (currentProfileId === id) { currentProfileId = ''; saveSettings(); }
+  // Efface aussi les donnees du profil supprime (dossier dedie).
+  try { fs.rmSync(path.join(dataFolder, 'profiles', id), { recursive: true, force: true }); } catch {}
+  if (wasCurrent) {
+    currentProfileId = '';
+    saveSettings();
+    saveProfiles();
+    refreshAfterProfileSwitch();   // repli sur l'invite + ses donnees
+    return;
+  }
   saveProfiles();
   pushState();
 }
@@ -278,8 +310,18 @@ function ensureDesktopAlias() {
   } catch {}
 }
 
+// Dossier de donnees du profil courant. Chaque profil a ses propres favoris /
+// raccourcis / historique / lanceur, bien separes. L'invite (aucun profil)
+// utilise la racine du dossier de donnees (compat avec les donnees existantes).
+function profileDataDir() {
+  if (!currentProfileId) return dataFolder;
+  const d = path.join(dataFolder, 'profiles', currentProfileId);
+  try { fs.mkdirSync(d, { recursive: true }); } catch {}
+  return d;
+}
+
 function readTsv(name) {
-  const p = path.join(dataFolder, name);
+  const p = path.join(profileDataDir(), name);
   if (!fs.existsSync(p)) return [];
   return fs.readFileSync(p, 'utf8').split(/\r?\n/).map(l => {
     const t = l.indexOf('\t');
@@ -290,8 +332,49 @@ function readTsv(name) {
 }
 
 function writeTsv(name, list) {
-  const p = path.join(dataFolder, name);
+  const p = path.join(profileDataDir(), name);
   fs.writeFileSync(p, list.map(e => e.url + '\t' + (e.title || '')).join('\n'), 'utf8');
+}
+
+// ----- Lanceur : persistance par profil -------------------------------------
+function launcherFile() { return path.join(profileDataDir(), 'launcher.json'); }
+function loadLauncher() {
+  launcherMode = 'travail'; launcherApps = [];
+  try {
+    const d = JSON.parse(fs.readFileSync(launcherFile(), 'utf8'));
+    if (d.mode === 'creatif' || d.mode === 'travail') launcherMode = d.mode;
+    if (Array.isArray(d.creative)) launcherApps = d.creative
+      .filter(x => x && x.url)
+      .map(x => ({ url: String(x.url), title: String(x.title || x.url).slice(0, 60) }))
+      .slice(0, 30);
+  } catch {}
+}
+function saveLauncher() {
+  try { fs.writeFileSync(launcherFile(), JSON.stringify({ mode: launcherMode, creative: launcherApps })); } catch {}
+}
+function normalizeShortcutUrl(u) {
+  u = String(u || '').trim();
+  if (!u) return '';
+  if (/^[a-z][a-z0-9+.\-]*:\/\//i.test(u)) return u;
+  return 'https://' + u.replace(/^\/+/, '');
+}
+
+// Recharge toutes les donnees liees au profil (favoris, raccourcis, historique,
+// lanceur) depuis le dossier du profil courant.
+function loadProfileData() {
+  bookmarks = readTsv('bookmarks.tsv');
+  shortcuts = readTsv('shortcuts.tsv');
+  history   = readTsv('history.tsv');
+  loadLauncher();
+}
+
+// Applique un changement de profil : recharge les donnees et rafraichit l'UI.
+function refreshAfterProfileSwitch() {
+  loadProfileData();
+  pushState();
+  pushShortcuts();
+  pushPanelState();
+  sendPanelHistory();
 }
 
 function loadSettings() {
@@ -325,9 +408,8 @@ function loadSettings() {
   if (!validAiChoice(settings.aiProvider, settings.aiSubmodel)) {
     settings.aiSubmodel = AI_PROVIDERS[settings.aiProvider].submodels[0];
   }
-  bookmarks = readTsv('bookmarks.tsv');
-  shortcuts = readTsv('shortcuts.tsv');
-  history   = readTsv('history.tsv');
+  // Les favoris / raccourcis / historique / lanceur sont propres au profil :
+  // charges par loadProfileData() une fois le profil courant connu.
 }
 
 function saveSettings() {
@@ -943,6 +1025,9 @@ function pushState() {
     aiConnected: ideStatus === 'connected',
     aiConnectEnabled: settings.aiConnectEnabled,
     aiMode: aiSearchOn,
+    launcherMode,
+    launcherApps: launcherApps.map(a => ({ url: a.url, title: a.title })),
+    launcherWork: WORK_APPS,
     panelOpen,
     aiPanelOpen,
   };
@@ -1720,6 +1805,22 @@ function handleAction(a, args, event) {
     case 'bookmarkToggle': toggleBookmark(); break;
     case 'addShortcut':    addShortcut(arg(0), arg(1)); break;
     case 'removeShortcut': removeShortcut(arg(0)); break;
+    case 'launcherSetMode':
+      if (arg(0) === 'travail' || arg(0) === 'creatif') { launcherMode = arg(0); saveLauncher(); pushState(); }
+      break;
+    case 'launcherAdd': {
+      const u = normalizeShortcutUrl(arg(0));
+      if (u && !launcherApps.some(a => a.url === u) && launcherApps.length < 30) {
+        launcherApps.push({ url: u, title: String(arg(1) || u).replace(/\x1f/g, ' ').trim().slice(0, 60) });
+        saveLauncher(); pushState();
+      }
+      break;
+    }
+    case 'launcherRemove':
+      launcherApps = launcherApps.filter(a => a.url !== arg(0));
+      saveLauncher(); pushState();
+      break;
+    case 'launcherOpen': if (arg(0)) createTab(arg(0), true); break;
     case 'setTheme':       setTheme(arg(0)); break;
     case 'back':           { const t = activeTab(); if (t && t.view.webContents.navigationHistory.canGoBack())    t.view.webContents.navigationHistory.goBack();    break; }
     case 'forward':        { const t = activeTab(); if (t && t.view.webContents.navigationHistory.canGoForward()) t.view.webContents.navigationHistory.goForward(); break; }
@@ -1917,6 +2018,7 @@ app.whenReady().then(() => {
   ensureDataFolder();
   loadSettings();
   loadProfiles();
+  loadProfileData();   // favoris/raccourcis/historique/lanceur du profil courant
   loadAiChats();
   startIdeStatusWatcher();
   registerProtocol();
