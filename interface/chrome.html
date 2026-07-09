@@ -162,63 +162,8 @@
     box-shadow: 0 1px 8px rgba(26,115,232,.35);
   }
 
-  /* ----- Mode recherche IA (zaalis labs ide) ----- */
-  /* Halo diffus autour de la barre au lieu d'un liseré : pas de démarcation
-     nette, juste une aura bleue douce qui suit le degrade. */
-  .address.ai {
-    border-color: transparent;
-    box-shadow: none;
-    /* Contexte d'empilement propre : le halo (::before/::after en z-index -1)
-       reste derriere le fond blanc de la barre mais passe AU-DESSUS du fond de
-       la barre d'outils -> le degrade est aussi net que sur la barre centrale,
-       sans reintroduire de demarcation. */
-    isolation: isolate;
-  }
-  body.dark .address.ai {
-    border-color: transparent;
-    box-shadow: none;
-  }
-  /* Halo IA : deux couches de degrade superposees qui derivent a des vitesses
-     et sens differents. La composition n'a pas de periode commune -> pas
-     d'impression de boucle. Couleurs saturees pour un rendu plus vif. */
-  .address.ai::before {
-    content: ""; position: absolute; inset: -2px; border-radius: 22px;
-    background:
-      linear-gradient(90deg,
-        rgba(0,120,255,.85), rgba(0,212,255,.85), rgba(120,90,255,.85),
-        rgba(0,212,255,.85), rgba(0,120,255,.85));
-    background-size: 200% 100%;
-    filter: blur(11px); opacity: .78;
-    animation: ai-flow 7s linear infinite;
-    pointer-events: none; z-index: -1;
-  }
-  .address.ai::after {
-    content: ""; position: absolute; inset: -2px; border-radius: 22px;
-    background:
-      radial-gradient(60% 120% at 20% 40%, rgba(72,152,255,.55), transparent 60%),
-      radial-gradient(55% 130% at 75% 60%, rgba(0,212,255,.55), transparent 60%),
-      radial-gradient(50% 110% at 50% 100%, rgba(160,110,255,.45), transparent 65%);
-    filter: blur(14px); opacity: .70;
-    mix-blend-mode: screen;
-    animation: ai-drift 11.3s ease-in-out infinite alternate;
-    pointer-events: none; z-index: -1;
-  }
-  /* Boucle sans couture : le degrade est un palindrome (memes couleurs aux
-     deux bords) et l'arriere-plan se repete (background-repeat par defaut).
-     On defile d'exactement une tuile (200% avec background-size 200%) : la
-     tuile suivante est identique -> aucun saut a la reprise. */
-  @keyframes ai-flow {
-    from { background-position: 0% 50%; }
-    to   { background-position: 200% 50%; }
-  }
-  /* Deplacement libre des taches : x/y/rotation avec des amplitudes qui
-     ne se re-alignent jamais parfaitement -> impression naturelle. */
-  @keyframes ai-drift {
-    0%   { transform: translate3d(-4%,  2%, 0) rotate(-3deg) scale(1.02); }
-    33%  { transform: translate3d( 5%, -3%, 0) rotate( 2deg) scale(1.05); }
-    66%  { transform: translate3d(-2%,  4%, 0) rotate( 4deg) scale(1.00); }
-    100% { transform: translate3d( 6%,  1%, 0) rotate(-2deg) scale(1.06); }
-  }
+  /* Le mode recherche IA vit uniquement sur la barre centrale de l'accueil :
+     la barre d'adresse reste une barre classique (aucun halo ni bouton IA). */
   .iconbtn.ai-on { color: #1f7bff; }
   .iconbtn.ai-on svg { filter: drop-shadow(0 0 6px rgba(31,123,255,.75)); }
   body.dark .iconbtn.ai-on { color: #8ab4f8; }
@@ -502,7 +447,6 @@
       <input id="omni" type="text" autocomplete="off" placeholder="Rechercher sur Google ou saisir une URL">
     </div>
 
-    <div class="iconbtn" id="ai" title="Recherche IA — zaalis labs ide"><svg viewBox="0 0 24 24"><path d="M12 3l1.7 4.6L18 9.3l-4.3 1.7L12 15.6l-1.7-4.6L6 9.3l4.3-1.7z"/><path d="M18.5 14.2l.85 2.05 2.05.85-2.05.85-.85 2.05-.85-2.05-2.05-.85 2.05-.85z"/></svg></div>
     <div class="iconbtn star" id="star" title="Ajouter aux favoris"><svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></div>
     <div class="iconbtn" id="aichat" title="Chat IA — zaalis labs ide"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z"/><path d="M12 8.2l.9 2.4 2.4.9-2.4.9-.9 2.4-.9-2.4-2.4-.9 2.4-.9z"/></svg></div>
     <div class="iconbtn" id="media" title="Controle media"><svg viewBox="0 0 24 24"><path d="M4 5h10"/><path d="M4 12h7"/><path d="M4 19h4"/><circle cx="17" cy="17" r="3"/><path d="M17 14V4l4 1"/></svg></div>
@@ -533,25 +477,17 @@
   const tabsEl = $("tabs"), omni = $("omni"), addr = $("address");
   let state = { theme:"light", searchEngine:"google", showBookmarks:true, tabs:[], active:{}, bookmarks:[] };
   let editing = false;
-  let aiMode = false;
   let mediaOpen = false;
   let mediaState = { available:false };
   let mediaPoll = 0;
 
   function isInternal(u){ return !u || u.indexOf("zaalis.home") !== -1 || u.indexOf("zaalis://") === 0 || u === "about:blank"; }
 
+  // Le mode IA vit uniquement sur la barre centrale de l'accueil : la barre
+  // d'adresse est une barre de navigation classique.
   function updatePlaceholder(){
-    if (aiMode) { omni.placeholder = "Rechercher avec zaalis labs ide — IA"; return; }
     const engineNames = { google:"Google", bing:"Bing", duckduckgo:"DuckDuckGo", brave:"Brave" };
     omni.placeholder = "Rechercher avec " + (engineNames[state.searchEngine] || "Google") + " ou saisir une URL";
-  }
-
-  function setAiMode(on){
-    aiMode = !!on;
-    addr.classList.toggle("ai", aiMode);
-    const btn = document.getElementById("ai");
-    if (btn) { btn.classList.toggle("ai-on", aiMode); btn.title = aiMode ? "Recherche IA activee — zaalis labs ide" : "Recherche IA — zaalis labs ide"; }
-    updatePlaceholder();
   }
 
   function faviconUrl(u) {
@@ -562,8 +498,6 @@
   function render(){
     document.body.classList.toggle("dark", state.theme === "dark");
     document.body.classList.toggle("hide-bookmarks", state.showBookmarks === false);
-    // Mode IA pilote par le natif (source unique partagee avec l'accueil).
-    if (typeof state.aiMode === "boolean" && state.aiMode !== aiMode) setAiMode(state.aiMode);
     updatePlaceholder();
 
     // Onglets
@@ -618,17 +552,12 @@
     $("star").title = state.active.isBookmarked ? "Retirer des favoris" : "Ajouter aux favoris";
     $("media").classList.toggle("active", mediaOpen);
 
-    // Grise les fonctions IA si l'IDE n'est pas joignable (sauf mode IA deja actif).
+    // Grise le chat IA si l'IDE n'est pas joignable.
     const aiOff = !state.aiConnected;
-    $("ai").classList.toggle("ai-off", aiOff && !aiMode);
     $("aichat").classList.toggle("ai-off", aiOff);
-    if (aiOff) {
-      $("ai").title = state.aiStatusMessage || "IA indisponible : zaalis labs ide non joignable.";
-      $("aichat").title = $("ai").title;
-    } else {
-      $("aichat").title = "Chat IA — zaalis labs ide";
-      if (!aiMode) $("ai").title = "Recherche IA — zaalis labs ide";
-    }
+    $("aichat").title = aiOff
+      ? (state.aiStatusMessage || "IA indisponible : zaalis labs ide non joignable.")
+      : "Chat IA — zaalis labs ide";
 
     // Meme bleu que la recherche IA quand le panneau correspondant est ouvert.
     $("aichat").classList.toggle("ai-on", !!state.aiPanelOpen && !aiOff);
@@ -1071,7 +1000,6 @@
     const d = e.data;
     if (!d) return;
     if (d.type === "state") { state = d; if (!drag) render(); }
-    else if (d.type === "aiMode") setAiMode(d.on);
     else if (d.type === "suggest") onSuggest(d);
     else if (d.type === "focusOmni") { omni.focus(); omni.select(); }
     else if (d.type === "mediaState") {
@@ -1108,12 +1036,6 @@
     btn.animate([{transform:'translateX(0)'},{transform:'translateX(-3px)'},{transform:'translateX(3px)'},{transform:'translateX(0)'}], {duration:220});
     post("togglePanel");
   }
-  $("ai").onclick = ()=> {
-    if (!state.aiConnected) { aiUnavailableFlash($("ai")); return; }
-    // Etat unique cote natif : il rediffuse aux deux barres (accueil + adresse).
-    post("setAiMode", aiMode ? "0" : "1");
-    omni.focus();
-  };
   $("aichat").onclick = ()=> {
     if (!state.aiConnected) { aiUnavailableFlash($("aichat")); return; }
     post("toggleAiPanel");
@@ -1125,7 +1047,7 @@
     if (!v) return;
     editing = false;
     closeSuggest();
-    post(aiMode ? "aiSearch" : "navigate", v);
+    post("navigate", v);
   }
   omni.addEventListener("focus", ()=>{ editing = true; addr.classList.add("focus"); omni.select(); });
   omni.addEventListener("blur", ()=>{ editing = false; addr.classList.remove("focus"); closeSuggest(); render(); });
