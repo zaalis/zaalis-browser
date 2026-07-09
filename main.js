@@ -120,6 +120,11 @@ let bookmarks = [];   // { url, title }
 let shortcuts = [];   // { url, title } — home page tiles
 let history   = [];   // { url, title }
 
+// Mode recherche IA (zaalis labs ide) : etat unique partage entre la barre
+// d'adresse (chrome.html) et la barre centrale de l'accueil (index.html) pour
+// que le degrade IA s'affiche simultanement sur les deux. Session uniquement.
+let aiSearchOn = false;
+
 // ----- Profils (comptes locaux, facon Chrome) --------------------------------
 // Aucun profil selectionne = mode invite. Chaque profil : pseudo, couleur
 // d'avatar, photo optionnelle (fichier avatars/<id>.png servi via zaalis://).
@@ -447,6 +452,9 @@ function setIdeStatus(status, message) {
   if (ideStatus === status && ideStatusMessage === (message || '')) return;
   ideStatus = status;
   ideStatusMessage = message || '';
+  // L'IDE n'est plus joignable : on eteint le mode IA pour ne pas laisser un
+  // degrade actif sur une fonction devenue indisponible.
+  if (status !== 'connected' && aiSearchOn) { aiSearchOn = false; pushAiMode(); }
   pushState();
   pushPanelState();
   pushAiPanelState();
@@ -627,6 +635,30 @@ async function fetchWikipedia(q) {
     return titles.map((t, i) => ({ url: urls[i], title: t, snippet: descs[i] || 'Article Wikipedia.' }))
                  .filter(r => r.url);
   } catch { return []; }
+}
+
+// Suggestions de saisie (facon Google) : recuperees cote process principal
+// pour eviter les blocages CORS depuis les pages internes. On interroge l'API
+// de completion Google (client=firefox -> JSON simple), avec repli DuckDuckGo.
+// Format Google : ["requete", ["sugg1", "sugg2", ...], [], {...}].
+async function fetchSuggest(q) {
+  q = (q || '').trim();
+  if (!q) return [];
+  const lang = 'fr';
+  try {
+    const raw = await httpGet('https://suggestqueries.google.com/complete/search?client=firefox&hl=' +
+                              lang + '&q=' + encodeURIComponent(q));
+    const a = JSON.parse(raw);
+    if (Array.isArray(a) && Array.isArray(a[1]) && a[1].length) {
+      return a[1].filter(s => typeof s === 'string').slice(0, 8);
+    }
+  } catch { /* repli ci-dessous */ }
+  try {
+    const raw = await httpGet('https://duckduckgo.com/ac/?q=' + encodeURIComponent(q) + '&type=list');
+    const a = JSON.parse(raw);
+    if (Array.isArray(a) && Array.isArray(a[1])) return a[1].filter(s => typeof s === 'string').slice(0, 8);
+  } catch { /* aucune suggestion */ }
+  return [];
 }
 
 // Deduplique par URL en preservant l'ordre.
@@ -910,6 +942,7 @@ function pushState() {
     aiStatusMessage: ideStatusMessage,
     aiConnected: ideStatus === 'connected',
     aiConnectEnabled: settings.aiConnectEnabled,
+    aiMode: aiSearchOn,
     panelOpen,
     aiPanelOpen,
   };
@@ -948,6 +981,17 @@ function pushPanelState() {
 
 function pushShortcuts() {
   const msg = { type: 'shortcuts', items: shortcuts.map(s => ({ url: s.url, title: s.title })) };
+  for (const t of tabs) {
+    const u = t.view.webContents.getURL();
+    if (isInternal(u)) t.view.webContents.send('zaalis:message', msg);
+  }
+}
+
+// Diffuse l'etat du mode recherche IA a la barre d'adresse (chrome) et aux
+// pages d'accueil : les deux barres allument leur degrade en meme temps.
+function pushAiMode() {
+  const msg = { type: 'aiMode', on: aiSearchOn };
+  if (chromeView) chromeView.webContents.send('zaalis:message', msg);
   for (const t of tabs) {
     const u = t.view.webContents.getURL();
     if (isInternal(u)) t.view.webContents.send('zaalis:message', msg);
@@ -1580,7 +1624,7 @@ async function askAiAboutPage() {
 function handleAction(a, args, event) {
   const arg = i => (i < args.length ? args[i] : '');
   switch (a) {
-    case 'ready':          pushState(); pushAiStatusToTabs(); break;
+    case 'ready':          pushState(); pushAiStatusToTabs(); pushShortcuts(); pushAiMode(); break;
     case 'chromeHeight': {
       const h   = parseInt(arg(0), 10) || chromeHeight;
       const top = args.length > 1 ? (parseInt(arg(1), 10) || h) : h;
@@ -1611,6 +1655,26 @@ function handleAction(a, args, event) {
     case 'splitWith':      setSplit(parseInt(arg(0), 10)); break;
     case 'unsplit':        clearSplit(); break;
     case 'navigate':       navigateActive(resolveQuery(arg(0))); break;
+    case 'setAiMode': {
+      // Bascule du mode IA : refusee si l'IDE n'est pas joignable (l'UI le
+      // signale de son cote). Diffuse aux deux barres pour un degrade unifie.
+      const on = arg(0) === '1';
+      if (on && ideStatus !== 'connected') { refreshIdeStatus(true); break; }
+      if (aiSearchOn !== on) { aiSearchOn = on; pushAiMode(); }
+      break;
+    }
+    case 'suggest': {
+      // Suggestions de saisie facon Google. On repond a l'emetteur (barre
+      // d'adresse ou accueil). `seq` permet d'ignorer les reponses perimees.
+      const seq = arg(0), q = arg(1);
+      const sender = event ? event.sender : null;
+      if (!sender) break;
+      if (settings.offline) { try { sender.send('zaalis:message', { type: 'suggest', seq, query: q, items: [] }); } catch {} break; }
+      fetchSuggest(q).then(items => {
+        try { sender.send('zaalis:message', { type: 'suggest', seq, query: q, items }); } catch {}
+      });
+      break;
+    }
     case 'aiSearch':       aiSearch(arg(0)); break;
     case 'runAiSearch':    runAiSearch(arg(0), event ? event.sender : null); break;
     case 'setAiProvider': {

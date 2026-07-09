@@ -54,7 +54,7 @@
             letter-spacing: -0.5px;
         }
 
-        .search-form { width: 100%; max-width: 580px; margin: 0 auto; }
+        .search-form { width: 100%; max-width: 580px; margin: 0 auto; position: relative; }
         .search-bar-wrapper { position: relative; }
         #search-input { position: relative; z-index: 2; }
         .search-bar-wrapper .magnifier, .search-bar-wrapper .ai-toggle { z-index: 3; }
@@ -156,6 +156,71 @@
             transition: all 0.2s ease;
         }
         #search-input:focus { border-color: transparent; box-shadow: var(--search-shadow); }
+
+        /* ---------- Suggestions de saisie (facon Google) ---------- */
+        .home-suggest {
+            position: absolute; top: 100%; left: 0; right: 0; margin-top: 10px;
+            z-index: 5;
+            background: var(--search-bg);
+            border: 1px solid var(--search-border);
+            border-radius: 18px;
+            box-shadow: 0 8px 28px rgba(0,0,0,.16);
+            padding: 6px; overflow: hidden; text-align: left;
+            opacity: 0; pointer-events: none;
+            transform: translateY(-6px);
+            transition: opacity .15s cubic-bezier(.2,.8,.2,1), transform .15s cubic-bezier(.2,.8,.2,1);
+        }
+        body.dark-mode .home-suggest { box-shadow: 0 8px 28px rgba(0,0,0,.5); }
+        .search-form.suggest-open .home-suggest { opacity: 1; pointer-events: auto; transform: none; }
+        .hs-item {
+            display: flex; align-items: center; gap: 14px;
+            padding: 9px 14px; border-radius: 12px; font-size: 15px;
+            white-space: nowrap; overflow: hidden; cursor: pointer;
+            color: var(--icon-color); transition: background .1s ease;
+        }
+        .hs-item .hs-ic { width: 18px; height: 18px; flex: none; display: flex; color: var(--icon-color); }
+        .hs-item .hs-ic svg { width: 18px; height: 18px; fill: currentColor; }
+        .hs-item .hs-tx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--icon-color); }
+        .hs-item .hs-tx b { font-weight: 600; color: var(--text-color); }
+        .hs-item.sel { background: rgba(127,127,127,.13); }
+
+        /* ---------- Modale « Ajouter un raccourci » ---------- */
+        .modal-mask {
+            position: fixed; inset: 0; z-index: 50;
+            background: rgba(0,0,0,.28);
+            display: flex; align-items: center; justify-content: center;
+            opacity: 0; pointer-events: none; transition: opacity .16s ease;
+        }
+        body.modal-open .modal-mask { opacity: 1; pointer-events: auto; }
+        .modal {
+            width: 380px; max-width: calc(100vw - 32px);
+            background: var(--search-bg); color: var(--text-color);
+            border-radius: 16px; padding: 22px 24px 18px;
+            box-shadow: 0 18px 50px rgba(0,0,0,.32);
+            transform: translateY(8px) scale(.98); transition: transform .16s cubic-bezier(.2,.8,.2,1);
+        }
+        body.modal-open .modal { transform: none; }
+        .modal h2 { margin: 0 0 18px; font-size: 20px; font-weight: 500; color: var(--text-color); }
+        .modal-field { margin-bottom: 16px; }
+        .modal-field input {
+            width: 100%; box-sizing: border-box; padding: 12px 14px;
+            font-size: 15px; font-family: inherit; color: var(--text-color);
+            background: transparent; border: 1px solid var(--search-border);
+            border-radius: 10px; outline: none; transition: border-color .15s ease;
+        }
+        .modal-field input:focus { border-color: #1a73e8; }
+        body.dark-mode .modal-field input:focus { border-color: #8ab4f8; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
+        .modal-btn {
+            padding: 9px 20px; border-radius: 999px; border: none; cursor: pointer;
+            font-size: 14px; font-family: inherit; font-weight: 500; background: transparent;
+            color: #1a73e8;
+        }
+        body.dark-mode .modal-btn { color: #8ab4f8; }
+        .modal-btn:hover { background: rgba(26,115,232,.10); }
+        .modal-btn.primary { color: #fff; background: #1a73e8; }
+        .modal-btn.primary:hover { background: #1765cc; }
+        .modal-btn.primary:disabled { background: var(--search-border); color: var(--icon-color); cursor: default; }
     </style>
 </head>
 <body>
@@ -179,10 +244,23 @@
                     <svg focusable="false" viewBox="0 0 24 24"><path d="M12 3l1.7 4.6L18 9.3l-4.3 1.7L12 15.6l-1.7-4.6L6 9.3l4.3-1.7z"/><path d="M18.5 14.2l.85 2.05 2.05.85-2.05.85-.85 2.05-.85-2.05-2.05-.85 2.05-.85z"/></svg>
                 </div>
             </div>
+            <div class="home-suggest" id="home-suggest"></div>
         </form>
 
         <div class="shortcuts" id="shortcuts"></div>
     </main>
+
+    <div class="modal-mask" id="modal-mask">
+        <div class="modal" id="modal">
+            <h2 id="modal-title">Ajouter un raccourci</h2>
+            <div class="modal-field"><input id="modal-name" type="text" placeholder="Nom" autocomplete="off"></div>
+            <div class="modal-field"><input id="modal-url" type="text" placeholder="URL" autocomplete="off"></div>
+            <div class="modal-actions">
+                <button class="modal-btn" id="modal-cancel">Annuler</button>
+                <button class="modal-btn primary" id="modal-ok" disabled>OK</button>
+            </div>
+        </div>
+    </div>
 
     <script>
         const wv = window.chrome && window.chrome.webview;
@@ -208,12 +286,16 @@
             if (wv) wv.postMessage('togglePanel');
             return;
           }
-          setAiMode(!aiMode); input.focus();
+          // Etat unique cote natif : rediffuse a la barre d'adresse ET a
+          // l'accueil pour que le degrade IA s'allume sur les deux barres.
+          if (wv) wv.postMessage("setAiMode" + "\x1f" + (aiMode ? "0" : "1"));
+          input.focus();
         });
 
         function launch() {
             const v = input.value.trim();
             if (!v) return;
+            closeSuggest();
             // En mode IA : la recherche est confiee a zaalis labs ide.
             // Sinon, le code natif decide : navigation directe ou recherche.
             if (wv) wv.postMessage((aiMode ? "aiSearch" : "navigate") + "\x1f" + v);
@@ -266,12 +348,7 @@
             const add = document.createElement("div");
             add.className = "shortcut add-shortcut"; add.title = "Ajouter un raccourci";
             add.innerHTML = '<div class="shortcut-icon"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div><div class="shortcut-label">Ajouter</div>';
-            add.onclick = () => {
-                const url = (prompt("Adresse du raccourci") || "").trim();
-                if (!url) return;
-                const name = (prompt("Nom du raccourci (optionnel)") || "").trim();
-                if (wv) wv.postMessage("addShortcut" + "\x1f" + url + "\x1f" + name);
-            };
+            add.onclick = () => openShortcutModal();
             shortcutsEl.appendChild(add);
         }
 
@@ -286,7 +363,112 @@
             if (!d) return;
             if (d.type === 'shortcuts') renderShortcuts(d.items);
             else if (d.type === 'aiStatus') applyAiConnected(d.connected, d.message);
+            else if (d.type === 'aiMode') setAiMode(d.on);
+            else if (d.type === 'suggest') onSuggest(d);
         });
+        // ---------- Suggestions de saisie (facon Google) ----------
+        const suggestBox = document.getElementById('home-suggest');
+        const HS_SEARCH = '<svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>';
+        let sItems = [], sSel = -1, sOpen = false, sSeq = 0, sSeen = 0, sTimer = 0, sQuery = "", sTyped = "";
+
+        function escHtml(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+        function highlightSuggest(text, q){
+            q = (q || "").trim();
+            if (q && text.toLowerCase().startsWith(q.toLowerCase()))
+                return escHtml(text.slice(0, q.length)) + "<b>" + escHtml(text.slice(q.length)) + "</b>";
+            return "<b>" + escHtml(text) + "</b>";
+        }
+        function updateSuggestSel(){ [...suggestBox.children].forEach((c, i) => c.classList.toggle("sel", i === sSel)); }
+        function requestSuggest(q){
+            q = (q || "").trim();
+            sQuery = q;
+            if (!q || /^[a-z][a-z0-9+.\-]*:\/\//i.test(q)) { closeSuggest(); return; }
+            if (wv) wv.postMessage("suggest\x1f" + (++sSeq) + "\x1f" + q);
+        }
+        function onSuggest(d){
+            const seq = Number(d.seq) || 0;
+            if (seq < sSeen) return;
+            sSeen = seq;
+            if (d.query !== sQuery) return;
+            if (document.activeElement !== input) return;
+            sItems = Array.isArray(d.items) ? d.items.slice(0, 8) : [];
+            sSel = -1;
+            renderSuggest();
+        }
+        function renderSuggest(){
+            if (!sItems.length) { closeSuggest(); return; }
+            suggestBox.innerHTML = "";
+            sItems.forEach((s, i) => {
+                const it = document.createElement("div");
+                it.className = "hs-item" + (i === sSel ? " sel" : "");
+                it.innerHTML = '<span class="hs-ic">' + HS_SEARCH + '</span><span class="hs-tx">' + highlightSuggest(s, sTyped) + '</span>';
+                it.addEventListener("mousedown", (e) => { e.preventDefault(); input.value = s; closeSuggest(); launch(); });
+                it.addEventListener("mouseenter", () => { sSel = i; updateSuggestSel(); });
+                suggestBox.appendChild(it);
+            });
+            if (!sOpen) { sOpen = true; form.classList.add("suggest-open"); }
+        }
+        function closeSuggest(){
+            if (!sOpen && !sItems.length) return;
+            sOpen = false; sItems = []; sSel = -1;
+            form.classList.remove("suggest-open");
+        }
+
+        input.addEventListener('input', () => {
+            sSel = -1; sTyped = input.value;
+            clearTimeout(sTimer);
+            const q = input.value;
+            sTimer = setTimeout(() => requestSuggest(q), 110);
+        });
+        input.addEventListener('keydown', (e) => {
+            if ((e.key === "ArrowDown" || e.key === "ArrowUp") && sOpen) {
+                e.preventDefault();
+                const dir = e.key === "ArrowDown" ? 1 : -1;
+                sSel = Math.max(-1, Math.min(sItems.length - 1, sSel + dir));
+                input.value = sSel >= 0 ? sItems[sSel] : sTyped;
+                updateSuggestSel();
+            } else if (e.key === "Enter") {
+                if (sOpen && sSel >= 0) input.value = sItems[sSel];
+                closeSuggest();   // launch() est declenche par le submit du formulaire
+            } else if (e.key === "Escape") {
+                if (sOpen) { e.preventDefault(); closeSuggest(); }
+            }
+        });
+        input.addEventListener('blur', () => setTimeout(closeSuggest, 120));
+        document.addEventListener('pointerdown', (e) => {
+            if (sOpen && !e.target.closest('#home-suggest, #search-input')) closeSuggest();
+        });
+
+        // ---------- Modale « Ajouter un raccourci » ----------
+        const modalMask = document.getElementById('modal-mask');
+        const mName = document.getElementById('modal-name');
+        const mUrl  = document.getElementById('modal-url');
+        const mOk   = document.getElementById('modal-ok');
+        const mCancel = document.getElementById('modal-cancel');
+
+        function openShortcutModal(){
+            mName.value = ""; mUrl.value = ""; mOk.disabled = true;
+            document.body.classList.add('modal-open');
+            setTimeout(() => mName.focus(), 30);
+        }
+        function closeShortcutModal(){ document.body.classList.remove('modal-open'); }
+        function validModal(){ mOk.disabled = !mUrl.value.trim(); }
+        function submitModal(){
+            const url = mUrl.value.trim();
+            if (!url) return;
+            const name = mName.value.trim();
+            if (wv) wv.postMessage("addShortcut\x1f" + url + "\x1f" + name);
+            closeShortcutModal();
+        }
+        mUrl.addEventListener('input', validModal);
+        mOk.addEventListener('click', submitModal);
+        mCancel.addEventListener('click', closeShortcutModal);
+        modalMask.addEventListener('pointerdown', (e) => { if (e.target === modalMask) closeShortcutModal(); });
+        [mName, mUrl].forEach(el => el.addEventListener('keydown', (e) => {
+            if (e.key === "Enter") { e.preventDefault(); submitModal(); }
+            else if (e.key === "Escape") { e.preventDefault(); closeShortcutModal(); }
+        }));
+
         if (wv) wv.postMessage('ready');
     </script>
 </body>

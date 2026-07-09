@@ -168,6 +168,11 @@
   .address.ai {
     border-color: transparent;
     box-shadow: none;
+    /* Contexte d'empilement propre : le halo (::before/::after en z-index -1)
+       reste derriere le fond blanc de la barre mais passe AU-DESSUS du fond de
+       la barre d'outils -> le degrade est aussi net que sur la barre centrale,
+       sans reintroduire de demarcation. */
+    isolation: isolate;
   }
   body.dark .address.ai {
     border-color: transparent;
@@ -402,6 +407,33 @@
   .bm .favicon img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   .empty { font-size: 12px; color: var(--muted); padding-left: 4px; }
 
+  /* ---------- Suggestions de saisie (facon Google) ---------- */
+  /* Carte flottante sous la barre d'adresse. Positionnee en JS (enfant du
+     body) pour rester alignee et non rognee ; la hauteur de la chrome est
+     etendue tant qu'elle est ouverte (comme les popups media/profil). */
+  .omni-suggest {
+    position: absolute; z-index: 45;
+    background: var(--input-bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.22);
+    padding: 6px; overflow: hidden;
+    opacity: 0; pointer-events: none;
+    transform: translateY(-6px);
+    transition: opacity .14s cubic-bezier(.2,.8,.2,1), transform .14s cubic-bezier(.2,.8,.2,1);
+  }
+  body.omni-suggest-open .omni-suggest { opacity: 1; pointer-events: auto; transform: none; }
+  .si-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 12px; border-radius: 11px; font-size: 14px; color: var(--text);
+    white-space: nowrap; overflow: hidden; cursor: default;
+    transition: background .1s ease;
+  }
+  .si-item .si-ic { width: 16px; height: 16px; flex: none; color: var(--muted); display: flex; }
+  .si-item .si-ic svg { width: 16px; height: 16px; fill: currentColor; }
+  .si-item .si-tx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+  .si-item .si-tx b { font-weight: 600; color: var(--text); }
+  .si-item.sel { background: var(--surface-h); }
+
   /* ---------- Controle media ---------- */
   .media-pop {
     position: absolute; top: 94px; right: 10px; width: 420px; max-width: calc(100vw - 20px);
@@ -490,6 +522,8 @@
     <div id="media-content"></div>
   </div>
 
+  <div class="omni-suggest" id="omni-suggest"></div>
+
 <script>
   const wv = window.chrome && window.chrome.webview;
   const SEP = "\x1f";
@@ -528,6 +562,8 @@
   function render(){
     document.body.classList.toggle("dark", state.theme === "dark");
     document.body.classList.toggle("hide-bookmarks", state.showBookmarks === false);
+    // Mode IA pilote par le natif (source unique partagee avec l'accueil).
+    if (typeof state.aiMode === "boolean" && state.aiMode !== aiMode) setAiMode(state.aiMode);
     updatePlaceholder();
 
     // Onglets
@@ -939,6 +975,7 @@
   document.addEventListener("pointerdown", (e) => {
     if (profileOpen && !e.target.closest("#profile-pop, #profile-btn")) setProfileOpen(false);
     if (mediaOpen && !e.target.closest("#media-pop, #media")) setMediaOpen(false);
+    if (suggestOpen && !e.target.closest("#omni-suggest, #address")) closeSuggest();
   });
 
   // ----- Reordonnancement des onglets au pointeur (facon Chrome) -----
@@ -1034,6 +1071,8 @@
     const d = e.data;
     if (!d) return;
     if (d.type === "state") { state = d; if (!drag) render(); }
+    else if (d.type === "aiMode") setAiMode(d.on);
+    else if (d.type === "suggest") onSuggest(d);
     else if (d.type === "focusOmni") { omni.focus(); omni.select(); }
     else if (d.type === "mediaState") {
       if (d.available) {
@@ -1071,7 +1110,9 @@
   }
   $("ai").onclick = ()=> {
     if (!state.aiConnected) { aiUnavailableFlash($("ai")); return; }
-    setAiMode(!aiMode); if (aiMode) { omni.focus(); }
+    // Etat unique cote natif : il rediffuse aux deux barres (accueil + adresse).
+    post("setAiMode", aiMode ? "0" : "1");
+    omni.focus();
   };
   $("aichat").onclick = ()=> {
     if (!state.aiConnected) { aiUnavailableFlash($("aichat")); return; }
@@ -1083,21 +1124,112 @@
     const v = omni.value.trim();
     if (!v) return;
     editing = false;
+    closeSuggest();
     post(aiMode ? "aiSearch" : "navigate", v);
   }
   omni.addEventListener("focus", ()=>{ editing = true; addr.classList.add("focus"); omni.select(); });
-  omni.addEventListener("blur", ()=>{ editing = false; addr.classList.remove("focus"); render(); });
-  omni.addEventListener("keydown", e => { if (e.key === "Enter") submit(); else if (e.key === "Escape") { omni.blur(); } });
+  omni.addEventListener("blur", ()=>{ editing = false; addr.classList.remove("focus"); closeSuggest(); render(); });
+  omni.addEventListener("keydown", e => {
+    if ((e.key === "ArrowDown" || e.key === "ArrowUp") && suggestOpen) {
+      e.preventDefault();
+      const dir = e.key === "ArrowDown" ? 1 : -1;
+      suggestSel = Math.max(-1, Math.min(suggestItems.length - 1, suggestSel + dir));
+      omni.value = suggestSel >= 0 ? suggestItems[suggestSel] : suggestTyped;
+      updateSuggestSel();
+    } else if (e.key === "Enter") {
+      if (suggestOpen && suggestSel >= 0) omni.value = suggestItems[suggestSel];
+      closeSuggest();
+      submit();
+    } else if (e.key === "Escape") {
+      if (suggestOpen) closeSuggest(); else omni.blur();
+    }
+  });
+  omni.addEventListener("input", () => {
+    editing = true;
+    suggestSel = -1;
+    suggestTyped = omni.value;
+    clearTimeout(suggestTimer);
+    const q = omni.value;
+    suggestTimer = setTimeout(() => requestSuggest(q), 110);
+  });
+
+  // ----- Suggestions de saisie (facon Google) -----
+  const suggestBox = $("omni-suggest");
+  const SI_SEARCH = '<svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>';
+  let suggestItems = [], suggestSel = -1, suggestOpen = false;
+  let suggestSeq = 0, suggestSeen = 0, suggestTimer = 0, suggestQuery = "", suggestTyped = "";
+
+  function escHtml(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+  function highlightSuggest(text, q){
+    q = (q || "").trim();
+    if (q && text.toLowerCase().startsWith(q.toLowerCase()))
+      return escHtml(text.slice(0, q.length)) + "<b>" + escHtml(text.slice(q.length)) + "</b>";
+    return "<b>" + escHtml(text) + "</b>";
+  }
+  function positionSuggest(){
+    const r = addr.getBoundingClientRect();
+    suggestBox.style.left  = r.left + "px";
+    suggestBox.style.top   = (r.bottom + 6) + "px";
+    suggestBox.style.width = r.width + "px";
+  }
+  function updateSuggestSel(){ [...suggestBox.children].forEach((c, i) => c.classList.toggle("sel", i === suggestSel)); }
+  function requestSuggest(q){
+    q = (q || "").trim();
+    suggestQuery = q;
+    // Pas de suggestion pour une URL explicite (schema://).
+    if (!q || /^[a-z][a-z0-9+.\-]*:\/\//i.test(q)) { closeSuggest(); return; }
+    post("suggest", String(++suggestSeq), q);
+  }
+  function onSuggest(d){
+    const seq = Number(d.seq) || 0;
+    if (seq < suggestSeen) return;               // reponse perimee
+    suggestSeen = seq;
+    if (d.query !== suggestQuery) return;         // la saisie a change entre-temps
+    if (document.activeElement !== omni) return;  // la barre n'a plus le focus
+    suggestItems = Array.isArray(d.items) ? d.items.slice(0, 8) : [];
+    suggestSel = -1;
+    renderSuggest();
+  }
+  function renderSuggest(){
+    if (!suggestItems.length) { closeSuggest(); return; }
+    suggestBox.innerHTML = "";
+    suggestItems.forEach((s, i) => {
+      const it = document.createElement("div");
+      it.className = "si-item" + (i === suggestSel ? " sel" : "");
+      it.innerHTML = '<span class="si-ic">' + SI_SEARCH + '</span><span class="si-tx">' + highlightSuggest(s, suggestTyped) + '</span>';
+      it.addEventListener("mousedown", (e) => { e.preventDefault(); omni.value = s; closeSuggest(); submit(); });
+      it.addEventListener("mouseenter", () => { suggestSel = i; updateSuggestSel(); });
+      suggestBox.appendChild(it);
+    });
+    positionSuggest();
+    if (!suggestOpen) { suggestOpen = true; document.body.classList.add("omni-suggest-open"); }
+    reportHeight();
+  }
+  function closeSuggest(){
+    if (!suggestOpen && !suggestItems.length) return;
+    suggestOpen = false; suggestItems = []; suggestSel = -1;
+    document.body.classList.remove("omni-suggest-open");
+    reportHeight();
+  }
 
   // Hauteur de la chrome -> communiquee au natif pour positionner le contenu
   function reportHeight(){
     const base = 40 + 52 + 3 + (state.showBookmarks === false ? 0 : 36);
-    const pop = mediaOpen ? $("media-pop") : (profileOpen ? $("profile-pop") : null);
-    if (pop) {
-      const left = pop.offsetLeft, top = pop.offsetTop;
-      const right = left + pop.offsetWidth, bottom = top + pop.offsetHeight;
-      post("chromeHeight", Math.max(base, bottom), base,
-           left, top, right, bottom);
+    // Superpositions ouvertes qui debordent sous la chrome : la hauteur de la
+    // chrome est etendue pour englober leur boite (union des rectangles).
+    const pops = [];
+    if (mediaOpen) pops.push($("media-pop"));
+    else if (profileOpen) pops.push($("profile-pop"));
+    if (typeof suggestOpen !== "undefined" && suggestOpen && $("omni-suggest").children.length) pops.push($("omni-suggest"));
+    if (pops.length) {
+      let L = Infinity, T = Infinity, R = -Infinity, B = -Infinity;
+      pops.forEach(p => {
+        L = Math.min(L, p.offsetLeft); T = Math.min(T, p.offsetTop);
+        R = Math.max(R, p.offsetLeft + p.offsetWidth); B = Math.max(B, p.offsetTop + p.offsetHeight);
+      });
+      // +12 px : evite que le bord/ombre du bas de la boite soit rogne par
+      // la limite de la vue chrome.
+      post("chromeHeight", Math.max(base, B) + 12, base, L, T, R, B);
     } else {
       post("chromeHeight", base, base);
     }
@@ -1106,7 +1238,7 @@
   render();
   post("ready");
   reportHeight();
-  window.addEventListener("resize", reportHeight);
+  window.addEventListener("resize", () => { if (suggestOpen) positionSuggest(); reportHeight(); });
 </script>
 </body>
 </html>
