@@ -1,0 +1,22 @@
+node_modules/
+dist/
+.DS_Store
+.claude/
+
+# Données locales, secrets et artefacts de distribution : ne jamais publier.
+.env
+.env.*
+!.env.example
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+coverage/
+out/
+release/
+*.dmg
+*.zip
+*.pem
+*.key
+*.p12
+*.mobileprovision

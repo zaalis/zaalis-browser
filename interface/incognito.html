@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: "Segoe UI", Arial, sans-serif;
+    background: linear-gradient(180deg, #201c31 0%, #17131f 100%);
+    color: #ece9f8;
+    display: flex; align-items: center; justify-content: center;
+    user-select: none; -webkit-user-select: none;
+  }
+  .wrap { max-width: 560px; padding: 40px; text-align: center; }
+  .glyph {
+    width: 84px; height: 84px; border-radius: 24px; margin: 0 auto 24px;
+    background: linear-gradient(135deg, #7b5cff, #9c7bff);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 14px 40px rgba(123,92,255,.4);
+  }
+  .glyph svg { width: 46px; height: 46px; fill: none; stroke: #fff; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  h1 { font-size: 24px; margin: 0 0 12px; font-weight: 700; }
+  p { font-size: 14.5px; line-height: 1.6; color: #c3bcdf; margin: 0 auto 26px; max-width: 460px; }
+  .points { display: grid; gap: 12px; text-align: left; max-width: 420px; margin: 0 auto; }
+  .pt {
+    display: flex; gap: 12px; align-items: flex-start;
+    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08);
+    border-radius: 14px; padding: 12px 14px;
+  }
+  .pt .i { width: 20px; height: 20px; flex: none; margin-top: 1px; color: #b9a7ff; }
+  .pt .i svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .pt .tx { font-size: 13px; line-height: 1.5; }
+  .pt .tx b { color: #ece9f8; font-weight: 650; }
+  .hint { margin-top: 24px; font-size: 12px; color: #8f88ab; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="glyph">
+      <svg viewBox="0 0 24 24"><circle cx="7.5" cy="15" r="3"/><circle cx="16.5" cy="15" r="3"/><path d="M10.5 15h3"/><path d="M4 12l2-5h12l2 5"/></svg>
+    </div>
+    <h1>Vous naviguez en privé</h1>
+    <p>Utilisez la barre d'adresse en haut pour rechercher ou saisir une URL. Cet onglet n'enregistre rien sur votre Mac.</p>
+    <div class="points">
+      <div class="pt">
+        <span class="i"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.8 1.8"/><path d="M5 5l14 14"/></svg></span>
+        <span class="tx"><b>Aucun historique</b> ni cookie conservé à la fermeture de l'onglet.</span>
+      </div>
+      <div class="pt">
+        <span class="i"><svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span>
+        <span class="tx"><b>Session isolée</b> : vous n'êtes connecté à aucun de vos comptes.</span>
+      </div>
+      <div class="pt">
+        <span class="i"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 12h6M12 9v6"/></svg></span>
+        <span class="tx"><b>Ce n'est pas l'anonymat total</b> : votre employeur, votre fournisseur d'accès ou les sites visités peuvent toujours vous voir.</span>
+      </div>
+    </div>
+    <div class="hint">zaalis browser — navigation privée</div>
+  </div>
+</body>
+</html>

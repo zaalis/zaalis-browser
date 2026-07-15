@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<style>
+  body {
+    --bg:#e8eaed; --menu:#f1f3f4; --row:#f1f3f4; --row-h:#e2e5e9; --text:#202124;
+    --muted:#5f6368; --border:#d2d5d9; --accent:#1a73e8; --danger:#d93025;
+  }
+  body.dark {
+    --bg:#202124; --menu:#303134; --row:#303134; --row-h:#3c4043; --text:#e8eaed;
+    --muted:#9aa0a6; --border:#3c4043; --accent:#8ab4f8; --danger:#f28b82;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; overflow:hidden; }
+  body {
+    font-family:"Segoe UI",Arial,sans-serif; background:var(--bg); color:var(--text);
+    display:flex; flex-direction:column; user-select:none; -webkit-user-select:none;
+    border-left:1px solid var(--border); border-top-left-radius:16px; overflow:hidden;
+  }
+  .head {
+    display:flex; align-items:center; gap:8px; height:50px; padding:0 10px;
+    border-bottom:1px solid var(--border); flex:none; background:var(--menu);
+  }
+  .head .ttl { font-size:15px; font-weight:600; flex:1; }
+  .account-summary { display:flex; align-items:center; gap:10px; min-width:0; }
+  .account-avatar {
+    width:30px; height:30px; border-radius:50%; flex:none; overflow:hidden;
+    display:flex; align-items:center; justify-content:center;
+    color:#fff; font-size:12px; font-weight:700; background:#9aa0a6;
+  }
+  .account-avatar img { width:100%; height:100%; object-fit:cover; }
+  .ibtn {
+    width:32px; height:32px; border-radius:50%; display:flex; align-items:center;
+    justify-content:center; color:var(--text); flex:none;
+    transition:background .12s ease, transform .22s cubic-bezier(.34,1.56,.64,1);
+  }
+  .ibtn:hover { background:var(--row-h); }
+  .ibtn:active { transform:scale(.82); }
+  svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+  .body { flex:1; overflow-y:auto; padding:10px 0; background:var(--menu); }
+  .group { padding:6px 14px 10px; border-bottom:1px solid var(--border); }
+  .group:last-child { border-bottom:none; }
+  .group-title {
+    color:var(--muted); font-size:11px; font-weight:700; text-transform:uppercase;
+    padding:4px 4px 8px; letter-spacing:0;
+  }
+  .menu-row {
+    display:flex; align-items:center; min-height:40px; gap:12px; padding:7px 10px;
+    border-radius:8px; cursor:default; font-size:14px;
+    transition:background .12s ease, transform .18s cubic-bezier(.34,1.56,.64,1);
+  }
+  .menu-row:hover { background:var(--row-h); }
+  .menu-row:active { transform:scale(.985); }
+  .menu-row.static:hover { background:none; }
+  .icon {
+    width:22px; height:22px; display:flex; align-items:center; justify-content:center;
+    color:var(--muted); flex:none;
+  }
+  .icon svg { width:17px; height:17px; }
+  .main { flex:1; min-width:0; }
+  .label { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .hint { color:var(--muted); font-size:12px; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .chev { color:var(--muted); font-size:20px; line-height:1; flex:none; }
+  .switch {
+    width:38px; height:21px; border-radius:11px; background:rgba(128,128,128,.28);
+    position:relative; flex:none; transition:background .15s ease;
+  }
+  .switch::after {
+    content:""; position:absolute; top:3px; left:3px; width:15px; height:15px;
+    border-radius:50%; background:#fff; transition:left .15s ease;
+  }
+  .switch.on { background:var(--accent); }
+  .switch.on::after { left:20px; }
+  select {
+    max-width:126px; height:30px; border:1px solid var(--border); border-radius:999px;
+    color:var(--text); background:var(--bg); padding:0 8px; outline:none; flex:none;
+  }
+  .pill {
+    border:none; border-radius:50%; color:var(--text); background:rgba(128,128,128,.16);
+    width:32px; height:32px; font:inherit; font-size:18px; display:flex;
+    align-items:center; justify-content:center; flex:none;
+  }
+  .pill:hover { background:rgba(128,128,128,.28); }
+  .zoom-value { min-width:50px; text-align:center; font-size:13px; }
+  .danger .label, .danger .icon { color:var(--danger); }
+  .hist-item {
+    display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:8px;
+    margin:0 10px; transition:background .12s ease, transform .18s cubic-bezier(.34,1.56,.64,1);
+  }
+  .hist-item:hover { background:var(--row-h); }
+  .hist-item:active { transform:scale(.97); }
+  .hist-item .favicon {
+    width:16px; height:16px; border-radius:4px; flex:none; position:relative; overflow:hidden;
+  }
+  .hist-item .favicon.fallback { background:linear-gradient(90deg,#4898ff,#00ffff); }
+  .hist-item .favicon img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  .hist-item .meta { flex:1; min-width:0; }
+  .hist-item .t { font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .hist-item .u { font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .hist-del {
+    width:28px; height:28px; border-radius:50%; display:flex; align-items:center;
+    justify-content:center; color:var(--muted); flex:none;
+  }
+  .hist-del:hover { background:rgba(128,128,128,.2); color:var(--danger); }
+  .hist-del svg { width:16px; height:16px; }
+  .hist-toggle-group { padding:6px 14px 10px; border-bottom:1px solid var(--border); }
+  .hist-search-box { display:flex; align-items:center; gap:8px; margin-top:8px; padding:7px 11px;
+    background:var(--row); border:1px solid var(--border); border-radius:10px; }
+  .hist-search-box svg { width:15px; height:15px; fill:none; stroke:var(--muted); stroke-width:2; flex:none; }
+  .hist-search-box input { flex:1; border:none; outline:none; background:transparent; color:var(--text);
+    font:inherit; font-size:13px; }
+  .empty { color:var(--muted); font-size:13px; padding:18px 10px; text-align:center; }
+
+  /* ----- Telechargements ----- */
+  .dl-row { align-items:center; }
+  .dl-row .thumb { width:26px; height:26px; flex:none; display:flex; align-items:center; justify-content:center; }
+  .dl-row .thumb img { width:26px; height:26px; object-fit:contain; display:block; }
+  .dl-row .thumb svg { width:22px; height:22px; color:var(--muted); fill:none; stroke:currentColor; stroke-width:1.6; }
+  .dl-row .t { font-weight:600; }
+  .dl-row.off .t { color:var(--muted); text-decoration:line-through; }
+  .dl-btn2 {
+    width:28px; height:28px; border-radius:50%; display:flex; align-items:center;
+    justify-content:center; color:var(--muted); flex:none;
+    transition:background .12s ease, color .12s ease, transform .18s cubic-bezier(.34,1.56,.64,1);
+  }
+  .dl-btn2:hover { background:rgba(128,128,128,.2); color:var(--text); }
+  .dl-btn2:active { transform:scale(.88); }
+  .dl-btn2.off { opacity:.3; pointer-events:none; }
+  .dl-btn2.danger-btn:hover { color:var(--danger); }
+  .dl-btn2 svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+</style>
+</head>
+
+<body>
+  <div class="head">
+    <div class="ibtn" id="back" style="display:none" title="Retour"><svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg></div>
+    <div class="ttl" id="title">Parametres</div>
+    <div class="ibtn" id="clear" style="display:none" title="Tout effacer"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></div>
+    <div class="ibtn" id="close" title="Fermer"><svg viewBox="0 0 24 24"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></div>
+  </div>
+
+  <!-- ----- Ecran racine : quelques entrees seulement ----- -->
+  <div class="body screen" id="screen-menu">
+    <div class="group">
+      <div class="menu-row static">
+        <div class="account-summary">
+          <div class="account-avatar" id="account-avatar">I</div>
+          <div class="main"><div class="label" id="account-name">Invité</div><div class="hint" id="account-hint">Réglages locaux</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-title">General</div>
+      <div class="menu-row" data-open="appearance">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 7.4A9 9 0 1 1 12 3z"/></svg></div>
+        <div class="main"><div class="label">Apparence</div><div class="hint">Theme, favoris, zoom</div></div>
+        <div class="chev">&rsaquo;</div>
+      </div>
+      <div class="menu-row" data-open="search">
+        <div class="icon"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg></div>
+        <div class="main"><div class="label">Recherche</div><div class="hint">Moteur, SafeSearch</div></div>
+        <div class="chev">&rsaquo;</div>
+      </div>
+      <div class="menu-row" data-open="privacy">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+        <div class="main"><div class="label">Confidentialite et securite</div></div>
+        <div class="chev">&rsaquo;</div>
+      </div>
+      <div class="menu-row" data-open="control">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M7 12h10"/><path d="M10 18h4"/></svg></div>
+        <div class="main"><div class="label">Controle</div><div class="hint">Onglets et session</div></div>
+        <div class="chev">&rsaquo;</div>
+      </div>
+      <div class="menu-row" data-open="voice">
+        <div class="icon"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"/><path d="M12 18v3"/></svg></div>
+        <div class="main"><div class="label">Recherche vocale</div><div class="hint" id="voice-menu-hint">Rechercher sur le Web avec la voix</div></div>
+        <div class="chev">&rsaquo;</div>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-title">Navigation</div>
+      <div class="menu-row" id="open-incognito">
+        <div class="icon"><svg viewBox="0 0 24 24"><circle cx="7.5" cy="15" r="3"/><circle cx="16.5" cy="15" r="3"/><path d="M10.5 15h3"/><path d="M4 12l2-5h12l2 5"/></svg></div>
+        <div class="main"><div class="label">Nouvel onglet privé</div><div class="hint">Navigation privée, non enregistrée (⌘⇧N)</div></div>
+      </div>
+      <div class="menu-row" id="open-history">
+        <div class="icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l4 2"/></svg></div>
+        <div class="main"><div class="label">Historique</div><div class="hint" id="counts"></div></div>
+        <div class="chev">&rsaquo;</div>
+      </div>
+      <div class="menu-row" id="open-downloads">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg></div>
+        <div class="main"><div class="label">Telechargements recents</div><div class="hint" id="dl-counts"></div></div>
+        <div class="chev">&rsaquo;</div>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-title">Avance</div>
+      <div class="menu-row" data-open="devmode">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M8 9l-4 3 4 3"/><path d="M16 9l4 3-4 3"/><path d="M14 4l-4 16"/></svg></div>
+        <div class="main"><div class="label">Mode developpeur</div></div>
+        <div class="chev">&rsaquo;</div>
+      </div>
+      <div class="menu-row danger" id="reset-settings">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v6h6"/></svg></div>
+        <div class="main"><div class="label">Retablir les reglages</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ----- Apparence ----- -->
+  <div class="body screen" id="screen-appearance" style="display:none">
+    <div class="group">
+      <div class="menu-row" id="theme-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 7.4A9 9 0 1 1 12 3z"/></svg></div>
+        <div class="main"><div class="label">Mode sombre</div></div>
+        <div class="switch" id="theme-sw"></div>
+      </div>
+      <div class="menu-row" id="show-bookmarks-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></div>
+        <div class="main"><div class="label">Afficher la barre de favoris</div></div>
+        <div class="switch" id="show-bookmarks"></div>
+      </div>
+      <div class="menu-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg></div>
+        <div class="main"><div class="label">Zoom</div></div>
+        <button class="pill" id="zoom-minus" title="Reduire">-</button>
+        <div class="zoom-value" id="zoom-value">100%</div>
+        <button class="pill" id="zoom-plus" title="Agrandir">+</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ----- Recherche ----- -->
+  <div class="body screen" id="screen-search" style="display:none">
+    <div class="group">
+      <div class="menu-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg></div>
+        <div class="main"><div class="label">Moteur de recherche</div><div class="hint">Barre d'adresse</div></div>
+        <select id="search-engine">
+          <option value="google">Google</option>
+          <option value="bing">Bing</option>
+          <option value="duckduckgo">DuckDuckGo</option>
+          <option value="brave">Brave</option>
+        </select>
+      </div>
+      <div class="menu-row" id="safe-search-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-5"/></svg></div>
+        <div class="main"><div class="label">SafeSearch</div><div class="hint">Filtrage demande au moteur choisi</div></div>
+        <div class="switch" id="safe-search"></div>
+      </div>
+    </div>
+    <div class="group">
+      <div class="group-title">Recherche IA — zaalis labs ide</div>
+      <div class="menu-row" id="ai-connect-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M9 12H4l3 3M9 12l-3-3M15 12h5l-3-3M15 12l3 3"/></svg></div>
+        <div class="main"><div class="label">Connexion à zaalis labs ide</div><div class="hint" id="ai-connect-hint">Vérification…</div></div>
+        <div class="switch" id="ai-connect"></div>
+      </div>
+      <div id="ai-connect-msg" style="display:none; margin:6px 4px 10px; padding:10px 12px; border-radius:10px; background:rgba(72,152,255,.10); color:var(--muted); font-size:12.5px; line-height:1.45;"></div>
+      <div class="menu-row" id="ai-model-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 2l2.2 6L20 10l-5.8 2L12 18l-2.2-6L4 10l5.8-2z"/></svg></div>
+        <div class="main"><div class="label">Modele IA</div><div class="hint" id="ai-model-hint"></div></div>
+        <div class="chev">&rsaquo;</div>
+      </div>
+      <div class="menu-row" id="ai-overview-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="6" rx="1.5"/><path d="M3 15h12M3 19h8"/></svg></div>
+        <div class="main"><div class="label">Synthese IA</div><div class="hint">Resume genere au-dessus des resultats</div></div>
+        <div class="switch" id="ai-overview"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ----- Modele IA : choix du fournisseur ----- -->
+  <div class="body screen" id="screen-aimodels" style="display:none">
+    <div class="group" id="ai-provider-list"></div>
+  </div>
+
+  <!-- ----- Modele IA : choix du sous-modele ----- -->
+  <div class="body screen" id="screen-aisub" style="display:none">
+    <div class="group" id="ai-submodel-list"></div>
+  </div>
+
+  <!-- ----- Confidentialite et securite ----- -->
+  <div class="body screen" id="screen-privacy" style="display:none">
+    <div class="group">
+      <div class="menu-row" id="offline-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>
+        <div class="main"><div class="label">Mode local securise</div><div class="hint">Bloque le reseau externe</div></div>
+        <div class="switch" id="offline"></div>
+      </div>
+      <div class="menu-row" id="block-popups-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="14" height="14" rx="2"/><path d="M8 9h6M8 13h4"/><path d="M17 3h4v4"/></svg></div>
+        <div class="main"><div class="label">Bloquer les popups</div><div class="hint">Ignore les nouvelles fenetres de sites</div></div>
+        <div class="switch" id="block-popups"></div>
+      </div>
+      <div class="menu-row" id="https-only-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>
+        <div class="main"><div class="label">HTTPS d'abord</div><div class="hint">Bascule les sites en connexion securisee</div></div>
+        <div class="switch" id="https-only"></div>
+      </div>
+      <div class="menu-row" id="safe-browsing-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <div class="main"><div class="label">Navigation securisee</div><div class="hint">Avertit sur les sites dangereux connus</div></div>
+        <div class="switch" id="safe-browsing"></div>
+      </div>
+      <div class="menu-row" id="reset-permissions">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6v6l4 2"/></svg></div>
+        <div class="main"><div class="label">Reinitialiser les permissions des sites</div><div class="hint">Camera, micro, position, notifications</div></div>
+      </div>
+      <div class="menu-row danger" id="clear-bookmarks">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/><path d="M8 8l8 8"/></svg></div>
+        <div class="main"><div class="label">Effacer les favoris</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ----- Controle ----- -->
+  <div class="body screen" id="screen-control" style="display:none">
+    <div class="group">
+      <div class="menu-row" id="restore-tabs-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M4 5h16v12H4z"/><path d="M8 21h8"/><path d="M12 17v4"/></svg></div>
+        <div class="main"><div class="label">Garder onglets</div><div class="hint">Rouvre les onglets au prochain lancement</div></div>
+        <div class="switch" id="restore-tabs"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ----- Recherche vocale : le modèle reste configuré ici uniquement ----- -->
+  <div class="body screen" id="screen-voice" style="display:none">
+    <div class="group">
+      <div class="group-title">Recherche à la voix</div>
+      <div class="menu-row" id="voice-model-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 2l2.2 6L20 10l-5.8 2L12 18l-2.2-6L4 10l5.8-2z"/></svg></div>
+        <div class="main"><div class="label">Modèle IA</div><div class="hint" id="voice-model-hint"></div></div>
+        <div class="chev">&rsaquo;</div>
+      </div>
+    </div>
+    <div class="group">
+      <div class="menu-row static">
+        <div class="icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16h.01"/></svg></div>
+        <div class="main"><div class="label">Recherche Web par la voix</div><div class="hint">Votre phrase est transcrite localement puis recherchée immédiatement sur le Web.</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="body screen" id="screen-voiceproviders" style="display:none">
+    <div class="group" id="voice-provider-list"></div>
+  </div>
+
+  <div class="body screen" id="screen-voicesub" style="display:none">
+    <div class="group" id="voice-submodel-list"></div>
+  </div>
+
+  <!-- ----- Mode developpeur ----- -->
+  <div class="body screen" id="screen-devmode" style="display:none">
+    <div class="group">
+      <div class="menu-row" id="dev-tools-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M8 9l-4 3 4 3"/><path d="M16 9l4 3-4 3"/><path d="M14 4l-4 16"/></svg></div>
+        <div class="main"><div class="label">Outils developpeur</div></div>
+        <div class="switch" id="dev-tools"></div>
+      </div>
+      <div class="menu-row" id="context-menus-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div>
+        <div class="main"><div class="label">Menus contextuels</div></div>
+        <div class="switch" id="context-menus"></div>
+      </div>
+      <div class="menu-row" id="status-bar-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 15h16"/></svg></div>
+        <div class="main"><div class="label">Barre d'etat</div></div>
+        <div class="switch" id="status-bar"></div>
+      </div>
+      <div class="menu-row" id="zoom-controls-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/></svg></div>
+        <div class="main"><div class="label">Controles de zoom natifs</div></div>
+        <div class="switch" id="zoom-controls"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ----- Historique ----- -->
+  <div class="body screen" id="screen-history" style="display:none">
+    <div class="hist-toggle-group">
+      <div class="menu-row" id="history-enabled-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M4 4v6h6"/><path d="M20 11a8 8 0 1 0-2.3 5.7"/></svg></div>
+        <div class="main"><div class="label">Enregistrer l'historique</div></div>
+        <div class="switch" id="history-enabled"></div>
+      </div>
+      <div class="hist-search-box">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="hist-search" type="text" autocomplete="off" placeholder="Rechercher dans l'historique…">
+      </div>
+    </div>
+    <div id="history-list"></div>
+  </div>
+
+  <!-- ----- Telechargements ----- -->
+  <div class="body screen" id="screen-downloads" style="display:none">
+    <div id="downloads-list"></div>
+  </div>
+
+<script>
+  const wv = window.zaalisBridge;
+  const SEP = "\x1f";
+  const post = (...p) => { if (wv) wv.postMessage(p.join(SEP)); };
+  const $ = id => document.getElementById(id);
+  let state = { zoomPct:100 };
+
+  const SCREENS = ["menu","appearance","search","privacy","control","voice","devmode","history","downloads","aimodels","aisub","voiceproviders","voicesub"];
+  const TITLES = { menu:"Parametres", appearance:"Apparence", search:"Recherche",
+                    privacy:"Confidentialite et securite", control:"Controle", devmode:"Mode developpeur", history:"Historique",
+                    downloads:"Telechargements", aimodels:"Modele IA", aisub:"Sous-modele",
+                    voice:"Recherche vocale", voiceproviders:"Modèle IA", voicesub:"Sous-modèle IA" };
+  // Ecran parent pour le bouton retour (navigation a plusieurs niveaux).
+  const PARENT = { appearance:"menu", search:"menu", privacy:"menu", control:"menu", devmode:"menu",
+                   history:"menu", downloads:"menu", aimodels:"search", aisub:"aimodels",
+                   voice:"menu", voiceproviders:"voice", voicesub:"voiceproviders" };
+  let currentScreen = "menu";
+  let pendingProvider = null;   // provider en cours de selection dans aisub
+  let pendingVoiceProvider = null;
+
+  function showScreen(name) {
+    currentScreen = name;
+    SCREENS.forEach(s => { $("screen-" + s).style.display = (s === name) ? "" : "none"; });
+    $("title").textContent = TITLES[name] || "Parametres";
+    $("back").style.display = (name === "menu") ? "none" : "";
+    $("clear").style.display = (name === "history" || name === "downloads") ? "" : "none";
+    if (name === "downloads") renderDownloads();
+    if (name === "aimodels") renderProviders();
+    if (name === "aisub") renderSubmodels();
+    if (name === "voiceproviders") renderVoiceProviders();
+    if (name === "voicesub") renderVoiceSubmodels();
+  }
+
+  function faviconUrl(u) {
+    try { return "https://www.google.com/s2/favicons?sz=64&format=png&domain=" + encodeURIComponent(new URL(u).hostname); }
+    catch (e) { return ""; }
+  }
+
+  // ----- Telechargements -----
+  let downloads = [];
+
+  function fmtSize(bytes) {
+    const b = Number(bytes) || 0;
+    if (b < 1024) return b + " o";
+    const u = ["Ko","Mo","Go","To"];
+    let v = b / 1024, i = 0;
+    while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+    return (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10).toString().replace(".", ",") + " " + u[i];
+  }
+
+  function fmtDate(ts) {
+    const d = new Date(Number(ts) || 0);
+    if (!ts || isNaN(d.getTime())) return "";
+    return d.toLocaleDateString() + " " + d.toLocaleTimeString().slice(0, 5);
+  }
+
+  function dlSub(d) {
+    if (d.state === "progressing") return d.total ? fmtSize(d.received) + " sur " + fmtSize(d.total) : fmtSize(d.received);
+    if (d.state === "cancelled")   return "Telechargement annule";
+    if (d.state === "interrupted") return "Telechargement interrompu";
+    return fmtSize(d.total || d.received) + " • " + fmtDate(d.startedAt);
+  }
+
+  function dlBtn(title, svg, enabled, cls, fn) {
+    const b = document.createElement("div");
+    b.className = "dl-btn2" + (enabled ? "" : " off") + (cls ? " " + cls : "");
+    b.title = title; b.innerHTML = svg;
+    if (enabled) b.onclick = e => { e.stopPropagation(); fn(); };
+    return b;
+  }
+
+  function renderDownloadCount() {
+    const dc = downloads.length || (state && state.downloadCount) || 0;
+    $("dl-counts").textContent = dc ? (String(dc) + " element" + (dc > 1 ? "s" : "")) : "Aucun telechargement";
+  }
+
+  function renderDownloads() {
+    const list = $("downloads-list"); list.innerHTML = "";
+    if (!downloads.length) {
+      const e = document.createElement("div"); e.className = "empty";
+      e.textContent = "Aucun telechargement pour le moment.";
+      list.appendChild(e); return;
+    }
+    downloads.forEach(d => {
+      const el = document.createElement("div");
+      el.className = "hist-item dl-row" + (d.state === "completed" || d.state === "progressing" ? "" : " off");
+      el.title = d.path || d.url || "";
+
+      const th = document.createElement("div"); th.className = "thumb";
+      if (d.state === "completed" && d.icon) {
+        const img = document.createElement("img"); img.alt = ""; img.src = d.icon; th.appendChild(img);
+      } else {
+        th.innerHTML = '<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>';
+      }
+      el.appendChild(th);
+
+      const m = document.createElement("div"); m.className = "meta";
+      const t = document.createElement("div"); t.className = "t"; t.textContent = d.name;
+      const u = document.createElement("div"); u.className = "u"; u.textContent = dlSub(d);
+      m.appendChild(t); m.appendChild(u); el.appendChild(m);
+
+      if (d.state === "progressing") {
+        el.appendChild(dlBtn("Annuler le telechargement",
+          '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+          true, "danger-btn", () => post("cancelDownload", d.id)));
+      } else {
+        const done = d.state === "completed";
+        el.appendChild(dlBtn("Afficher dans le Finder",
+          '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+          done, "", () => post("showDownload", d.id)));
+        el.appendChild(dlBtn("Retirer de la liste",
+          '<svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/></svg>',
+          true, "danger-btn", () => post("removeDownload", d.id)));
+        if (done) el.onclick = () => post("openDownload", d.id);
+      }
+      list.appendChild(el);
+    });
+  }
+
+  let lastHistory = [];
+  function renderHistory(items) {
+    if (Array.isArray(items)) lastHistory = items;
+    const q = ($("hist-search") ? $("hist-search").value : "").trim().toLowerCase();
+    const list = q ? lastHistory.filter(it => ((it.title||"") + " " + (it.url||"")).toLowerCase().indexOf(q) !== -1) : lastHistory;
+    const h = $("history-list"); h.innerHTML = "";
+    if (!list.length) {
+      const e = document.createElement("div"); e.className="empty";
+      e.textContent = q ? "Aucun resultat pour cette recherche." : "Aucune navigation pour le moment.";
+      h.appendChild(e); return;
+    }
+    list.forEach(it => {
+      const el = document.createElement("div"); el.className = "hist-item"; el.title = it.url;
+      const fav = document.createElement("div"); fav.className = "favicon";
+      const src = faviconUrl(it.url);
+      if (src) {
+        const img = document.createElement("img"); img.alt = "";
+        img.onerror = () => { img.remove(); fav.classList.add("fallback"); };
+        img.src = src;
+        fav.appendChild(img);
+      } else {
+        fav.classList.add("fallback");
+      }
+      el.appendChild(fav);
+      const m = document.createElement("div"); m.className="meta";
+      const t = document.createElement("div"); t.className="t"; t.textContent = it.title && it.title.trim() ? it.title : it.url;
+      const u = document.createElement("div"); u.className="u"; u.textContent = it.url;
+      m.appendChild(t); m.appendChild(u); el.appendChild(m);
+      const del = document.createElement("div"); del.className = "hist-del";
+      del.innerHTML = '<svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/></svg>';
+      del.onclick = e => { e.stopPropagation(); post("removeHistory", it.url); };
+      el.appendChild(del);
+      el.onclick = () => post("openHistory", it.url);
+      h.appendChild(el);
+    });
+  }
+  function setSwitch(id, on) { $(id).classList.toggle("on", !!on); }
+
+  function renderAccount() {
+    const account = state.profile && state.profile.current;
+    const avatar = $("account-avatar");
+    avatar.innerHTML = "";
+    avatar.style.background = account && account.color ? account.color : "#9aa0a6";
+    if (account && account.photo) {
+      const img = document.createElement("img");
+      img.alt = "";
+      img.src = "zaalis://home/profile-avatar/" + account.id + "?v=" + account.photo;
+      img.onerror = () => { img.remove(); avatar.textContent = account.name.trim().charAt(0).toUpperCase() || "?"; };
+      avatar.appendChild(img);
+    } else {
+      avatar.textContent = account ? (account.name.trim().charAt(0).toUpperCase() || "?") : "I";
+    }
+    $("account-name").textContent = account ? account.name : "Invité";
+    $("account-hint").textContent = account ? "Profil local" : "Réglages locaux";
+  }
+
+  // ----- Etat de connexion a zaalis labs ide -------------------------------
+  const AI_STATUS_TEXTS = {
+    connected:   { hint: "Connecté à zaalis labs ide.", msg: "" },
+    "no-account": {
+      hint: "Aucun compte détecté dans zaalis labs ide.",
+      msg:  "👉 Ouvrez zaalis labs ide et créez un compte (ou connectez-vous) pour commencer à utiliser les fonctions IA avancées du navigateur."
+    },
+    unreachable: {
+      hint: "zaalis labs ide n'est pas lancé.",
+      msg:  "⚠️ Impossible de joindre zaalis labs ide sur ce Mac. Lancez l'application, puis réessayez."
+    },
+    offline: {
+      hint: "Mode local sécurisé actif.",
+      msg:  "🔒 Désactivez le mode local sécurisé pour utiliser l'IA (Confidentialité et sécurité)."
+    },
+    disabled: {
+      hint: "Désactivée manuellement.",
+      msg:  "L'accès à l'IA de zaalis labs ide est coupé. Activez ce commutateur pour réessayer la connexion."
+    },
+  };
+
+  function renderAiConnect() {
+    setSwitch("ai-connect", !!state.aiConnectEnabled && state.aiStatus === "connected");
+    const st = AI_STATUS_TEXTS[state.aiStatus] || AI_STATUS_TEXTS.unreachable;
+    $("ai-connect-hint").textContent = st.hint;
+    const msgEl = $("ai-connect-msg");
+    if (state.aiStatus === "connected") { msgEl.style.display = "none"; }
+    else { msgEl.style.display = ""; msgEl.textContent = state.aiStatusMessage || st.msg; }
+  }
+
+  // ----- Modele IA : fournisseur -> sous-modele (comme dans zaalis labs ide) -
+  function modelLabel(id) { return (state.aiModelLabels || {})[id] || id; }
+
+  function renderProviders() {
+    const box = $("ai-provider-list"); box.innerHTML = "";
+    const provs = state.aiProviders || {};
+    Object.keys(provs).forEach(key => {
+      const p = provs[key];
+      const row = document.createElement("div"); row.className = "menu-row";
+      const sel = key === state.aiProvider;
+      row.innerHTML =
+        '<div class="icon"><svg viewBox="0 0 24 24"><path d="M12 2l2.2 6L20 10l-5.8 2L12 18l-2.2-6L4 10l5.8-2z"/></svg></div>' +
+        '<div class="main"><div class="label"></div><div class="hint"></div></div>' +
+        '<div class="chev">' + (sel ? "&#10003;&nbsp;" : "") + '&rsaquo;</div>';
+      row.querySelector(".label").textContent = p.label;
+      row.querySelector(".hint").textContent = sel
+        ? modelLabel(state.aiSubmodel)
+        : (p.submodels.length + " modeles");
+      row.onclick = () => { pendingProvider = key; showScreen("aisub"); };
+      box.appendChild(row);
+    });
+  }
+
+  function renderSubmodels() {
+    const box = $("ai-submodel-list"); box.innerHTML = "";
+    const prov = (state.aiProviders || {})[pendingProvider];
+    if (!prov) { showScreen("aimodels"); return; }
+    $("title").textContent = prov.label;
+    prov.submodels.forEach(id => {
+      const row = document.createElement("div"); row.className = "menu-row";
+      const sel = pendingProvider === state.aiProvider && id === state.aiSubmodel;
+      row.innerHTML =
+        '<div class="main"><div class="label"></div><div class="hint"></div></div>' +
+        (sel ? '<div class="chev" style="color:var(--accent)">&#10003;</div>' : "");
+      row.querySelector(".label").textContent = modelLabel(id);
+      row.querySelector(".hint").textContent = id;
+      row.onclick = () => {
+        post("setAiProvider", pendingProvider);
+        post("setAiSubmodel", id);
+        showScreen("aimodels");
+      };
+      box.appendChild(row);
+    });
+  }
+
+  function renderVoiceProviders() {
+    const box = $("voice-provider-list"); box.innerHTML = "";
+    const provs = state.aiProviders || {};
+    Object.keys(provs).forEach(key => {
+      const p = provs[key];
+      const row = document.createElement("div"); row.className = "menu-row";
+      const sel = key === state.voiceProvider;
+      row.innerHTML =
+        '<div class="icon"><svg viewBox="0 0 24 24"><path d="M12 2l2.2 6L20 10l-5.8 2L12 18l-2.2-6L4 10l5.8-2z"/></svg></div>' +
+        '<div class="main"><div class="label"></div><div class="hint"></div></div>' +
+        '<div class="chev">' + (sel ? "&#10003;&nbsp;" : "") + '&rsaquo;</div>';
+      row.querySelector(".label").textContent = p.label;
+      row.querySelector(".hint").textContent = sel ? modelLabel(state.voiceSubmodel) : (p.submodels.length + " modeles");
+      row.onclick = () => { pendingVoiceProvider = key; showScreen("voicesub"); };
+      box.appendChild(row);
+    });
+  }
+
+  function renderVoiceSubmodels() {
+    const box = $("voice-submodel-list"); box.innerHTML = "";
+    const prov = (state.aiProviders || {})[pendingVoiceProvider];
+    if (!prov) { showScreen("voiceproviders"); return; }
+    $("title").textContent = prov.label;
+    prov.submodels.forEach(id => {
+      const row = document.createElement("div"); row.className = "menu-row";
+      const sel = pendingVoiceProvider === state.voiceProvider && id === state.voiceSubmodel;
+      row.innerHTML = '<div class="main"><div class="label"></div><div class="hint"></div></div>' +
+        (sel ? '<div class="chev" style="color:var(--accent)">&#10003;</div>' : "");
+      row.querySelector(".label").textContent = modelLabel(id);
+      row.querySelector(".hint").textContent = id;
+      row.onclick = () => {
+        post("setVoiceProvider", pendingVoiceProvider);
+        post("setVoiceSubmodel", id);
+        showScreen("voice");
+      };
+      box.appendChild(row);
+    });
+  }
+
+  function wireSwitch(rowId, switchId, action) {
+    $(rowId).onclick = () => post(action, $(switchId).classList.contains("on") ? "0" : "1");
+  }
+  function renderState(d) {
+    state = d || state;
+    document.body.classList.toggle("dark", state.theme === "dark");
+    renderAccount();
+    setSwitch("theme-sw", state.theme === "dark");
+    setSwitch("offline", state.offline);
+    setSwitch("safe-search", state.safeSearch);
+    setSwitch("show-bookmarks", state.showBookmarks);
+    setSwitch("history-enabled", state.historyEnabled);
+    setSwitch("block-popups", state.blockPopups);
+    setSwitch("https-only", state.httpsOnly);
+    setSwitch("safe-browsing", state.safeBrowsing);
+    setSwitch("context-menus", state.contextMenus);
+    setSwitch("dev-tools", state.devTools);
+    setSwitch("status-bar", state.statusBar);
+    setSwitch("zoom-controls", state.zoomControls);
+    setSwitch("restore-tabs", state.restoreTabs);
+    setSwitch("ai-overview", state.aiOverview);
+    $("search-engine").value = state.searchEngine || "google";
+    const prov = (state.aiProviders || {})[state.aiProvider];
+    $("ai-model-hint").textContent = prov ? (prov.label + " — " + modelLabel(state.aiSubmodel)) : "";
+    const voiceProv = (state.aiProviders || {})[state.voiceProvider];
+    const voiceModel = voiceProv ? (voiceProv.label + " — " + modelLabel(state.voiceSubmodel)) : "";
+    $("voice-model-hint").textContent = voiceModel;
+    $("voice-menu-hint").textContent = voiceModel || "Choisir le modèle de conversation";
+    renderAiConnect();
+    if (currentScreen === "aimodels") renderProviders();
+    else if (currentScreen === "aisub") renderSubmodels();
+    else if (currentScreen === "voiceproviders") renderVoiceProviders();
+    else if (currentScreen === "voicesub") renderVoiceSubmodels();
+    $("zoom-value").textContent = String(state.zoomPct || 100) + "%";
+    $("counts").textContent = String(state.historyCount || 0) + " elements / " + String(state.bookmarkCount || 0) + " favoris";
+    renderDownloadCount();
+  }
+
+  document.querySelectorAll("[data-open]").forEach(row => {
+    row.onclick = () => showScreen(row.dataset.open);
+  });
+  $("open-incognito").onclick = () => { post("newIncognito"); post("closePanel"); };
+  $("open-history").onclick = () => { showScreen("history"); post("getHistory"); };
+  $("hist-search").addEventListener("input", () => renderHistory());
+  $("open-downloads").onclick = () => { showScreen("downloads"); post("getDownloads"); };
+  $("back").onclick = () => showScreen(PARENT[currentScreen] || "menu");
+  $("ai-model-row").onclick = () => showScreen("aimodels");
+  $("voice-model-row").onclick = () => showScreen("voiceproviders");
+  $("clear").onclick = () => {
+    if (currentScreen === "downloads") { if (confirm("Effacer la liste des telechargements ?")) post("clearDownloads"); }
+    else if (confirm("Effacer tout l'historique ?")) post("clearHistory");
+  };
+  $("close").onclick = () => post("closePanel");
+  $("theme-row").onclick = () => post("setTheme", $("theme-sw").classList.contains("on") ? "light" : "dark");
+  $("search-engine").onclick = e => e.stopPropagation();
+  $("search-engine").onchange = () => post("setSearchEngine", $("search-engine").value);
+  wireSwitch("ai-overview-row", "ai-overview", "setAiOverview");
+  // Le switch reflete l'etat "connecte" — on l'utilise comme bouton reactiver
+  // la connexion (ou pour la couper si connecte).
+  $("ai-connect-row").onclick = () => {
+    if (state.aiConnectEnabled) post("setAiConnect", "0");
+    else                        post("setAiConnect", "1");
+  };
+  $("zoom-minus").onclick = e => { e.stopPropagation(); post("setZoomPct", String((state.zoomPct || 100) - 10)); };
+  $("zoom-plus").onclick = e => { e.stopPropagation(); post("setZoomPct", String((state.zoomPct || 100) + 10)); };
+  $("clear-bookmarks").onclick = () => { if (confirm("Effacer tous les favoris ?")) post("clearBookmarks"); };
+  $("reset-settings").onclick = () => { if (confirm("Retablir tous les reglages par defaut ?")) post("resetSettings"); };
+  wireSwitch("offline-row", "offline", "setOffline");
+  wireSwitch("safe-search-row", "safe-search", "setSafeSearch");
+  wireSwitch("show-bookmarks-row", "show-bookmarks", "setShowBookmarks");
+  wireSwitch("history-enabled-row", "history-enabled", "setHistoryEnabled");
+  wireSwitch("block-popups-row", "block-popups", "setBlockPopups");
+  wireSwitch("https-only-row", "https-only", "setHttpsOnly");
+  wireSwitch("safe-browsing-row", "safe-browsing", "setSafeBrowsing");
+  $("reset-permissions").onclick = () => { if (confirm("Reinitialiser les permissions (camera, micro, position, notifications) pour tous les sites ?")) post("resetPermissions"); };
+  wireSwitch("context-menus-row", "context-menus", "setContextMenus");
+  wireSwitch("dev-tools-row", "dev-tools", "setDevTools");
+  wireSwitch("status-bar-row", "status-bar", "setStatusBar");
+  wireSwitch("zoom-controls-row", "zoom-controls", "setZoomControls");
+  wireSwitch("restore-tabs-row", "restore-tabs", "setRestoreTabs");
+
+  if (wv) wv.addEventListener("message", e => {
+    const d = e.data;
+    if (!d) return;
+    if (d.type === "state") renderState(d);
+    else if (d.type === "history") { showScreen("history"); renderHistory(d.items); }
+    else if (d.type === "downloads") {
+      downloads = Array.isArray(d.items) ? d.items : [];
+      if (currentScreen === "downloads") renderDownloads();
+      renderDownloadCount();
+    }
+    else if (d.type === "showDownloads") {
+      if (Array.isArray(d.items)) downloads = d.items;
+      showScreen("downloads");
+    }
+    else if (d.type === "showMenu") showScreen("menu");
+  });
+
+  showScreen("menu");
+  post("panelReady");
+</script>
+</body>
+</html>

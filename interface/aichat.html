@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<style>
+  body {
+    --bg:#e8eaed; --menu:#f1f3f4; --row:#f1f3f4; --row-h:#e2e5e9; --text:#202124;
+    --muted:#5f6368; --border:#d2d5d9; --accent:#1a73e8; --danger:#d93025;
+    --bubble-user:#1a73e8; --bubble-user-text:#ffffff; --bubble-ai:#ffffff;
+  }
+  body.dark {
+    --bg:#202124; --menu:#303134; --row:#303134; --row-h:#3c4043; --text:#e8eaed;
+    --muted:#9aa0a6; --border:#3c4043; --accent:#8ab4f8; --danger:#f28b82;
+    --bubble-user:#8ab4f8; --bubble-user-text:#202124; --bubble-ai:#3c4043;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; overflow:hidden; }
+  body {
+    font-family:"Segoe UI",Arial,sans-serif; background:var(--menu); color:var(--text);
+    display:flex; flex-direction:column; user-select:none; -webkit-user-select:none;
+    border-left:1px solid var(--border); border-top-left-radius:16px; overflow:hidden;
+    position:relative;
+  }
+
+  /* ----- En-tete ----- */
+  .head {
+    display:flex; align-items:center; gap:8px; height:50px; padding:0 10px;
+    border-bottom:1px solid var(--border); flex:none; background:var(--menu);
+  }
+  .head .ttl { flex:1; min-width:0; }
+  .head .ttl .t1 {
+    font-size:15px; font-weight:700;
+    background:linear-gradient(90deg,#4898ff,#00d4ff);
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+    display:inline-block;
+  }
+  .head .ttl .t2 { font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ibtn {
+    width:32px; height:32px; border-radius:50%; display:flex; align-items:center;
+    justify-content:center; color:var(--text); flex:none;
+    transition:background .12s ease, transform .22s cubic-bezier(.34,1.56,.64,1);
+  }
+  .ibtn:hover { background:var(--row-h); }
+  .ibtn:active { transform:scale(.82); }
+  svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+
+  /* ----- Messages ----- */
+  .chat {
+    flex:1; overflow-y:auto; padding:14px 12px 10px; display:flex;
+    flex-direction:column; gap:10px; background:var(--bg);
+  }
+  .msg { max-width:86%; padding:9px 13px; border-radius:16px; font-size:13.5px;
+         line-height:1.5; white-space:pre-wrap; word-wrap:break-word;
+         user-select:text; -webkit-user-select:text;
+         animation:pop .22s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes pop { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+  .msg.still { animation:none; }
+  .msg.user { align-self:flex-end; background:var(--bubble-user); color:var(--bubble-user-text); border-bottom-right-radius:5px; }
+  .msg.ai   { align-self:flex-start; background:var(--bubble-ai); border:1px solid var(--border); border-bottom-left-radius:5px; }
+  .msg.ai code { background:rgba(128,128,128,.16); padding:1px 5px; border-radius:4px;
+                 font-family:ui-monospace,Menlo,monospace; font-size:12px; }
+  .msg.ai b { font-weight:650; }
+  .empty-chat {
+    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:10px; color:var(--muted); font-size:13.5px; text-align:center; padding:0 26px;
+  }
+  .empty-chat .spark {
+    width:44px; height:44px; border-radius:14px;
+    background:linear-gradient(135deg,#4898ff,#00d4ff);
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 4px 16px rgba(72,152,255,.4);
+  }
+  .empty-chat .spark svg { width:24px; height:24px; fill:#fff; stroke:none; }
+  .typing { align-self:flex-start; display:flex; gap:5px; padding:12px 15px;
+            background:var(--bubble-ai); border:1px solid var(--border); border-radius:16px; border-bottom-left-radius:5px; }
+  .typing i { width:6px; height:6px; border-radius:50%; background:var(--accent); animation:blink 1s infinite; }
+  .typing i:nth-child(2){ animation-delay:.15s } .typing i:nth-child(3){ animation-delay:.3s }
+  @keyframes blink { 0%,100%{opacity:.25} 50%{opacity:1} }
+  .typing .step { font-size:12px; color:var(--muted); align-self:center; margin-left:2px; }
+
+  @keyframes pulse { 0%,100%{ opacity:1 } 50%{ opacity:.5 } }
+
+  /* ----- Lot de commandes exécutées (repliable, plié par défaut) ----- */
+  .batch {
+    align-self:stretch; max-width:100%; overflow:hidden;
+    border:1px solid var(--border); border-radius:14px; background:var(--bubble-ai);
+    animation:pop .22s cubic-bezier(.2,.8,.2,1) both;
+  }
+  .batch.still { animation:none; }
+  .batch-head {
+    display:flex; align-items:center; gap:9px; padding:9px 11px;
+    cursor:pointer; user-select:none; transition:background .12s ease;
+  }
+  .batch-head:hover { background:var(--row-h); }
+  .batch-ic {
+    width:22px; height:22px; border-radius:7px; flex:none;
+    background:linear-gradient(135deg,#4898ff,#00d4ff);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .batch-ic svg { width:13px; height:13px; stroke:#fff; stroke-width:2; }
+  .batch.live .batch-ic { animation:pulse 1.1s ease-in-out infinite; }
+  .batch-title { font-size:12.5px; font-weight:650; color:var(--text); white-space:nowrap; }
+  .batch-count { flex:1; font-size:11.5px; color:var(--muted); }
+  .batch-count .num { display:inline-block; font-variant-numeric:tabular-nums; font-weight:700;
+    color:var(--text); will-change:transform; }
+  .batch-chev { color:var(--muted); flex:none; display:flex; transition:transform .22s cubic-bezier(.2,.8,.2,1); }
+  .batch-chev svg { width:16px; height:16px; }
+  .batch.open .batch-chev { transform:rotate(180deg); }
+  .batch-body { display:none; flex-direction:column; padding:3px 7px 7px; border-top:1px solid var(--border); }
+  .batch.open .batch-body { display:flex; }
+  .batch-row {
+    display:flex; align-items:center; gap:9px; padding:6px 7px; border-radius:8px;
+    font-size:12.5px; animation:pop .18s ease both;
+  }
+  .batch-row .chk { width:15px; height:15px; flex:none; color:#22a565; display:flex; }
+  .batch-row .chk svg { width:15px; height:15px; stroke:currentColor; stroke-width:2.5; }
+  .batch-row .act-lbl { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--muted); }
+
+  /* ----- Connecteur vertical à gauche (lot -> réponse), façon fil ----- */
+  .flow-rail { align-self:flex-start; margin:2px 0 2px 15px; width:2px; height:24px;
+    border-radius:2px; background:var(--border); position:relative; }
+  .flow-rail::before { content:""; position:absolute; left:-3px; top:-3px; width:8px; height:8px;
+    border-radius:50%; background:linear-gradient(135deg,#4898ff,#00d4ff); }
+
+  /* ----- Zone de saisie ----- */
+  .composer { flex:none; padding:10px 12px 12px; background:var(--menu); border-top:1px solid var(--border); }
+  .composer .box {
+    display:flex; align-items:flex-end; gap:8px;
+    background:var(--bg); border:1px solid var(--border); border-radius:20px; padding:6px 6px 6px 14px;
+    transition:border-color .15s ease, box-shadow .15s ease;
+  }
+  .composer .box:focus-within { border-color:transparent; box-shadow:0 1px 10px rgba(72,152,255,.35); }
+  .composer textarea {
+    flex:1; border:none; outline:none; background:transparent; resize:none;
+    color:var(--text); font:inherit; font-size:13.5px; line-height:1.45;
+    max-height:110px; padding:4px 0;
+    user-select:text; -webkit-user-select:text;
+  }
+  .composer .send {
+    width:32px; height:32px; border-radius:50%; border:none; cursor:pointer; flex:none;
+    background:linear-gradient(135deg,#4898ff,#00d4ff); color:#fff;
+    display:flex; align-items:center; justify-content:center;
+    transition:transform .22s cubic-bezier(.34,1.56,.64,1), opacity .15s ease;
+  }
+  .composer .send:active { transform:scale(.82); }
+  .composer .send.off { opacity:.4; pointer-events:none; }
+  .composer .send svg { width:16px; height:16px; fill:currentColor; stroke:none; }
+
+  /* ----- Tiroir des conversations (3/4 de la largeur) ----- */
+  .drawer-backdrop {
+    position:absolute; inset:0; background:rgba(0,0,0,.25); opacity:0;
+    pointer-events:none; transition:opacity .2s ease; z-index:20;
+  }
+  body.drawer-open .drawer-backdrop { opacity:1; pointer-events:auto; }
+  .drawer {
+    position:absolute; top:0; bottom:0; left:0; width:75%;
+    background:var(--menu); border-right:1px solid var(--border);
+    transform:translateX(-102%); transition:transform .24s cubic-bezier(.2,.8,.2,1);
+    z-index:21; display:flex; flex-direction:column;
+    box-shadow:6px 0 22px rgba(0,0,0,.16);
+  }
+  body.drawer-open .drawer { transform:translateX(0); }
+  .drawer .dhead {
+    display:flex; align-items:center; gap:8px; height:50px; padding:0 10px;
+    border-bottom:1px solid var(--border); flex:none;
+  }
+  .drawer .dhead .t { flex:1; font-size:14px; font-weight:600; }
+  .newconv {
+    margin:10px; padding:9px 12px; border-radius:12px; border:1px dashed var(--border);
+    display:flex; align-items:center; gap:8px; font-size:13px; color:var(--accent);
+    transition:background .12s ease;
+  }
+  .newconv:hover { background:var(--row-h); }
+  .convs { flex:1; overflow-y:auto; padding:0 8px 10px; }
+  .conv {
+    display:flex; align-items:center; gap:8px; padding:9px 10px; border-radius:10px;
+    font-size:13px; transition:background .12s ease;
+  }
+  .conv:hover { background:var(--row-h); }
+  .conv.current { background:var(--row-h); font-weight:600; }
+  .conv .meta { flex:1; min-width:0; }
+  .conv .t { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .conv .n { font-size:11px; color:var(--muted); }
+  .conv .del {
+    width:24px; height:24px; border-radius:50%; display:none;
+    align-items:center; justify-content:center; color:var(--muted); flex:none;
+  }
+  .conv:hover .del { display:flex; }
+  .conv .del:hover { background:rgba(128,128,128,.2); color:var(--danger); }
+  .conv .del svg { width:14px; height:14px; }
+  .dempty { color:var(--muted); font-size:12.5px; text-align:center; padding:20px 12px; }
+</style>
+</head>
+
+<body>
+  <div class="head">
+    <div class="ibtn" id="menu" title="Conversations">
+      <svg viewBox="0 0 24 24"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+    </div>
+    <div class="ttl">
+      <div><span class="t1">zaalis IA</span></div>
+      <div class="t2" id="model-label"></div>
+    </div>
+    <div class="ibtn" id="newchat" title="Nouvelle conversation">
+      <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+    </div>
+    <div class="ibtn" id="close" title="Fermer">
+      <svg viewBox="0 0 24 24"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+    </div>
+  </div>
+
+  <div class="chat" id="chat"></div>
+
+  <div class="composer">
+    <div class="box">
+      <textarea id="input" rows="1" placeholder="Poser une question…"></textarea>
+      <button class="send" id="send" title="Envoyer">
+        <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="drawer-backdrop" id="backdrop"></div>
+  <div class="drawer">
+    <div class="dhead">
+      <div class="t">Conversations</div>
+      <div class="ibtn" id="drawer-close" title="Fermer">
+        <svg viewBox="0 0 24 24"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+      </div>
+    </div>
+    <div class="newconv" id="drawer-new">
+      <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M12 5v14M5 12h14"/></svg>
+      Nouvelle conversation
+    </div>
+    <div class="convs" id="convs"></div>
+  </div>
+
+<script>
+  const wv = window.zaalisBridge;
+  const SEP = "\x1f";
+  const post = (...p) => { if (wv) wv.postMessage(p.join(SEP)); };
+  const $ = id => document.getElementById(id);
+  const chatEl = $("chat"), input = $("input"), sendBtn = $("send");
+
+  let busy = false;
+  let currentId = null;
+  let lastStep = "";   // libellé de l'étape d'outil en cours (affiché sous les points)
+
+  // Mise en forme minimale et sure : echappe tout, puis **gras** et `code`.
+  function fmt(s) {
+    let h = String(s).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+    h = h.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
+    h = h.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    return h;
+  }
+
+  const ICON_BATCH   = '<svg viewBox="0 0 24 24" fill="none"><rect x="8.5" y="8.5" width="11" height="11" rx="2.2"/><path d="M4.5 15.5V6A1.5 1.5 0 016 4.5h9.5"/></svg>';
+  const ICON_CHECK   = '<svg viewBox="0 0 24 24" fill="none"><path d="M5 12l5 5L20 7"/></svg>';
+  const ICON_CHEVRON = '<svg viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6"/></svg>';
+
+  // État déplié/plié mémorisé PAR LOT (indexé par ordre d'apparition), plié
+  // par défaut. Avant, un seul booléen partagé mémorisait l'état : dérouler
+  // UN lot (par curiosité pendant que l'IA travaille) faisait rester TOUS les
+  // lots dépliés pour toujours, y compris celui du tour en cours une fois la
+  // réponse finale (le "résumé") arrivée — l'IA "avait travaillé" replié mais
+  // le résumé arrivait avec le lot grand ouvert. Chaque lot a maintenant son
+  // propre état, qui ne contamine plus les autres ni les tours suivants.
+  const batchOpenState = new Map();
+
+  function batchRow(label) {
+    const r = document.createElement("div");
+    r.className = "batch-row";
+    r.innerHTML = '<span class="chk">' + ICON_CHECK + '</span><span class="act-lbl"></span>';
+    r.querySelector(".act-lbl").textContent = label;
+    return r;
+  }
+
+  // Fait glisser le compteur de sa valeur actuelle jusqu'à `to` (comptage animé
+  // + léger glissement vertical), au lieu d'un simple remplacement du texte.
+  function animateCount(numEl, to) {
+    if (!numEl) return;
+    const from = parseInt(numEl.textContent, 10) || 0;
+    if (from === to) { numEl.textContent = String(to); return; }
+    const start = performance.now(), dur = 300;
+    numEl.style.transition = "none";
+    numEl.style.transform = "translateY(-5px)";
+    numEl.style.opacity = ".45";
+    requestAnimationFrame(() => {
+      numEl.style.transition = "transform .26s cubic-bezier(.2,.8,.2,1), opacity .26s ease";
+      numEl.style.transform = "translateY(0)";
+      numEl.style.opacity = "1";
+    });
+    (function tick(now) {
+      const p = Math.min(1, (now - start) / dur);
+      numEl.textContent = String(Math.round(from + (to - from) * p));
+      if (p < 1) requestAnimationFrame(tick);
+    })(start);
+  }
+
+  // Met à jour l'en-tête (titre + compteur + unité) selon le nombre d'actions.
+  function setBatchHead(b, count, live) {
+    b.querySelector(".batch-title").textContent = live ? "L'IA effectue" : "L'IA a effectué";
+    animateCount(b.querySelector(".batch-count .num"), count);
+    b.querySelector(".batch-count .unit").textContent = count > 1 ? "actions" : "action";
+  }
+
+  // Lot repliable des commandes exécutées : en-tête (icône + titre + compteur +
+  // chevron) toujours visible, corps (la liste des actions) masqué par défaut.
+  function makeBatch(labels, live, idx) {
+    const open = batchOpenState.get(idx) === true;
+    const b = document.createElement("div");
+    b.dataset.idx = idx;
+    b.className = "batch" + (live ? " live" : "") + (open ? " open" : "");
+    b.innerHTML =
+      '<div class="batch-head">' +
+        '<span class="batch-ic">' + ICON_BATCH + '</span>' +
+        '<span class="batch-title"></span>' +
+        '<span class="batch-count"><span class="num">0</span> <span class="unit">action</span></span>' +
+        '<span class="batch-chev">' + ICON_CHEVRON + '</span>' +
+      '</div>' +
+      '<div class="batch-body"></div>';
+    const body = b.querySelector(".batch-body");
+    labels.forEach(l => body.appendChild(batchRow(l)));
+    // valeur initiale sans animation (rendu statique de l'historique)
+    b.querySelector(".batch-count .num").textContent = String(labels.length);
+    b.querySelector(".batch-count .unit").textContent = labels.length > 1 ? "actions" : "action";
+    b.querySelector(".batch-title").textContent = live ? "L'IA effectue" : "L'IA a effectué";
+    b.querySelector(".batch-head").onclick = () => {
+      const nowOpen = !b.classList.contains("open");
+      b.classList.toggle("open", nowOpen);
+      batchOpenState.set(idx, nowOpen);
+    };
+    return b;
+  }
+
+  // Connecteur vertical à gauche reliant le lot à la réponse (fil + nœud).
+  function flowRail() {
+    const s = document.createElement("div");
+    s.className = "flow-rail";
+    return s;
+  }
+
+  // Renvoie le lot « en cours » du tour actuel, en le créant (avec son
+  // connecteur) juste avant les points d'attente s'il n'existe pas encore.
+  // Son index = nombre de lots déjà affichés (les lots sont ajoutés dans
+  // l'ordre, jamais réordonnés) : le rendu complet qui suivra à la fin du
+  // tour (résumé) retombera sur ce même index et donc sur le même état.
+  function ensureLiveBatch() {
+    let b = chatEl.querySelector(".batch.live");
+    if (b) return b;
+    const idx = chatEl.querySelectorAll(".batch").length;
+    b = makeBatch([], true, idx);
+    const typing = document.getElementById("typing");
+    if (typing) { chatEl.insertBefore(b, typing); chatEl.insertBefore(flowRail(), typing); }
+    else { chatEl.appendChild(b); chatEl.appendChild(flowRail()); }
+    return b;
+  }
+
+  function renderMessages(d) {
+    if (d.id !== currentId) batchOpenState.clear();  // autre conversation : les index repartent de 0
+    currentId = d.id;
+    busy = !!d.busy;
+    lastStep = "";   // les étapes déjà réalisées sont désormais persistées comme chips
+    sendBtn.classList.toggle("off", busy);
+    chatEl.innerHTML = "";
+    const msgs = Array.isArray(d.messages) ? d.messages : [];
+    if (!msgs.length && !busy) {
+      chatEl.innerHTML =
+        '<div class="empty-chat">' +
+          '<div class="spark"><svg viewBox="0 0 24 24"><path d="M12 2l2.2 6L20 10l-5.8 2L12 18l-2.2-6L4 10l5.8-2z"/></svg></div>' +
+          '<div><b>zaalis IA</b><br>Pose une question sur la page ouverte : je peux lire son contenu, la console, le réseau, exécuter du JavaScript, cliquer et naviguer pour te répondre.</div>' +
+        '</div>';
+      return;
+    }
+    // On regroupe les étapes d'outils consécutives dans un même LOT repliable
+    // (plié par défaut), suivi d'un connecteur fléché vers la réponse.
+    let batchIdx = 0;
+    for (let i = 0; i < msgs.length; i++) {
+      const m = msgs[i];
+      if (m.role === "tool") {
+        const labels = [];
+        while (i < msgs.length && msgs[i].role === "tool") {
+          labels.push(msgs[i].label || ("Outil " + (msgs[i].tool || "")));
+          i++;
+        }
+        i--; // compense le i++ de la boucle for
+        const live = busy && i === msgs.length - 1;  // lot encore en cours
+        chatEl.appendChild(makeBatch(labels, live, batchIdx++));
+        chatEl.appendChild(flowRail());
+        continue;
+      }
+      const el = document.createElement("div");
+      el.className = "msg " + (m.role === "user" ? "user" : "ai");
+      if (m.role === "user") el.textContent = m.content;
+      else el.innerHTML = fmt(m.content);
+      chatEl.appendChild(el);
+    }
+    if (busy) {
+      const t = document.createElement("div");
+      t.className = "typing"; t.id = "typing";
+      t.innerHTML = "<i></i><i></i><i></i><span class='step'></span>";
+      if (lastStep) t.querySelector(".step").textContent = lastStep;
+      chatEl.appendChild(t);
+    }
+    // Seul le dernier élément anime son apparition (pas tout l'historique).
+    const all = chatEl.querySelectorAll(".msg, .batch");
+    for (let i = 0; i < all.length - 1; i++) all[i].classList.add("still");
+    chatEl.scrollTop = chatEl.scrollHeight;
+  }
+
+  function renderConvs(d) {
+    const box = $("convs"); box.innerHTML = "";
+    const items = Array.isArray(d.items) ? d.items : [];
+    if (!items.length) {
+      box.innerHTML = '<div class="dempty">Aucune conversation pour le moment.</div>';
+      return;
+    }
+    items.forEach(it => {
+      const el = document.createElement("div");
+      el.className = "conv" + (it.id === d.currentId ? " current" : "");
+      const meta = document.createElement("div"); meta.className = "meta";
+      const t = document.createElement("div"); t.className = "t"; t.textContent = it.title || "Conversation";
+      const n = document.createElement("div"); n.className = "n";
+      n.textContent = it.count + " message" + (it.count > 1 ? "s" : "");
+      meta.appendChild(t); meta.appendChild(n); el.appendChild(meta);
+      const del = document.createElement("div"); del.className = "del"; del.title = "Supprimer";
+      del.innerHTML = '<svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>';
+      del.onclick = e => { e.stopPropagation(); post("aiChatDelete", it.id); };
+      el.appendChild(del);
+      el.onclick = () => { post("aiChatSelect", it.id); setDrawer(false); };
+      box.appendChild(el);
+    });
+  }
+
+  function setDrawer(open) { document.body.classList.toggle("drawer-open", open); }
+
+  function send() {
+    const v = input.value.trim();
+    if (!v || busy) return;
+    input.value = "";
+    autosize();
+    post("aiChatSend", v);
+  }
+
+  function autosize() {
+    input.style.height = "auto";
+    input.style.height = Math.min(110, input.scrollHeight) + "px";
+  }
+
+  $("menu").onclick = () => setDrawer(true);
+  $("backdrop").onclick = () => setDrawer(false);
+  $("drawer-close").onclick = () => setDrawer(false);
+  $("drawer-new").onclick = () => { post("aiChatNew"); setDrawer(false); };
+  $("newchat").onclick = () => post("aiChatNew");
+  $("close").onclick = () => post("closeAiPanel");
+  sendBtn.onclick = send;
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+  input.addEventListener("input", autosize);
+
+  if (wv) wv.addEventListener("message", e => {
+    const d = e.data;
+    if (!d) return;
+    if (d.type === "aiPanelState") {
+      document.body.classList.toggle("dark", d.theme === "dark");
+      $("model-label").textContent = d.modelLabel ? (d.modelLabel + " · " + (d.providerLabel || "")) : "";
+    }
+    else if (d.type === "aiChatMessages") renderMessages(d);
+    else if (d.type === "aiChats") renderConvs(d);
+    else if (d.type === "aiChatStep") {
+      // L'IA vient de LANCER une commande : on montre son libellé à côté des
+      // points d'attente (la commande terminée arrivera via aiChatAction).
+      lastStep = d.label || "";
+      const typing = document.getElementById("typing");
+      if (typing) {
+        let step = typing.querySelector(".step");
+        if (!step) { step = document.createElement("span"); step.className = "step"; typing.appendChild(step); }
+        step.textContent = lastStep;
+      }
+      chatEl.scrollTop = chatEl.scrollHeight;
+    }
+    else if (d.type === "aiChatAction") {
+      // Commande TERMINÉE : ajout INCRÉMENTAL au lot (nouvelle ligne qui glisse
+      // en bas) + compteur animé, SANS reconstruire le chat entier.
+      const b = ensureLiveBatch();
+      const body = b.querySelector(".batch-body");
+      const atBottom = chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < 40;
+      body.appendChild(batchRow(d.label || "Action"));
+      setBatchHead(b, body.childElementCount, true);
+      if (atBottom || b.classList.contains("open")) chatEl.scrollTop = chatEl.scrollHeight;
+    }
+  });
+
+  post("aiPanelReady");
+</script>
+</body>
+</html>

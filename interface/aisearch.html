@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>zaalis labs ide — Recherche IA</title>
+<style>
+  :root {
+    --bg:#e9eaed; --panel:#ffffff; --panel-2:#f1f3f4; --text:#202124; --muted:#5f6368;
+    --border:#d9dce0; --accent:#1a73e8; --link:#1a56c7; --shadow:0 1px 6px rgba(0,0,0,.10);
+  }
+  body.dark-mode {
+    --bg:#191a1c; --panel:#232427; --panel-2:#2a2b2e; --text:#e8eaed; --muted:#9aa0a6;
+    --border:#3a3c40; --accent:#8ab4f8; --link:#8ab4f8; --shadow:0 1px 8px rgba(0,0,0,.45);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    font-family: "Segoe UI", -apple-system, Arial, sans-serif;
+    background: var(--bg); color: var(--text);
+    min-height: 100vh; padding: 26px 20px 60px;
+    transition: background-color .25s ease, color .25s ease;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+
+  /* En-tete de marque */
+  .brand-row { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+  .brand-mark {
+    width: 30px; height: 30px; border-radius: 9px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #4898ff, #00d4ff);
+    box-shadow: 0 2px 10px rgba(72,152,255,.4);
+  }
+  .brand-mark svg { width: 18px; height: 18px; fill: #fff; }
+  .brand-name { font-size: 16px; font-weight: 700; letter-spacing: .2px; }
+  .brand-name .g { background: linear-gradient(90deg,#4898ff,#00d4ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .brand-sub { font-size: 12px; color: var(--muted); }
+  .model-badge {
+    margin-left: auto; font-size: 12px; font-weight: 600; color: var(--accent);
+    padding: 4px 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel);
+    white-space: nowrap;
+  }
+
+  /* Barre de recherche (relancer) */
+  .refine { position: relative; margin-bottom: 22px; }
+  /* Halo IA colle a la barre : pas de lisere ni d'anneau, le degrade part
+     du bord de l'input (aucune demarcation). */
+  .refine::before {
+    content:""; position:absolute; inset:-2px; border-radius: 27px;
+    background: linear-gradient(90deg, rgba(0,120,255,.85), rgba(0,212,255,.85), rgba(120,90,255,.85), rgba(0,212,255,.85), rgba(0,120,255,.85));
+    background-size: 200% 100%;
+    filter: blur(13px); opacity: .75;
+    animation: flow 7s linear infinite; pointer-events: none; z-index: 0;
+  }
+  /* Boucle sans couture : palindrome + defilement d'exactement une tuile. */
+  @keyframes flow { from { background-position: 0% 50%; } to { background-position: 200% 50%; } }
+  .refine input, .refine .go { position: relative; z-index: 1; }
+  .refine input {
+    width: 100%; height: 50px; border: 1px solid transparent; border-radius: 25px; outline: none;
+    background: var(--panel); color: var(--text); font-size: 16px;
+    padding: 0 54px 0 20px;
+    box-shadow: none;
+  }
+  body.dark-mode .refine input {
+    border-color: transparent;
+    box-shadow: none;
+  }
+  .refine .go {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    width: 36px; height: 36px; border-radius: 50%; border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg,#4898ff,#00d4ff); color: #fff;
+    transition: transform .18s cubic-bezier(.34,1.56,.64,1);
+  }
+  .refine .go:active { transform: translateY(-50%) scale(.86); }
+  .refine .go svg { width: 18px; height: 18px; fill: currentColor; }
+
+  /* Carte de synthese IA */
+  .overview {
+    position: relative; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 16px; padding: 18px 20px 18px 22px; margin-bottom: 24px;
+    box-shadow: var(--shadow); overflow: hidden;
+    animation: rise .4s cubic-bezier(.2,.8,.2,1) both;
+  }
+  .overview::before {
+    content:""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    background: linear-gradient(180deg,#4898ff,#00d4ff);
+  }
+  .overview .ov-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .overview .ov-head .spark { width: 16px; height: 16px; }
+  .overview .ov-head .spark svg { width: 16px; height: 16px; fill: url(#ovgrad); }
+  .overview .ov-title { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+  .overview p { margin: 0; font-size: 15.5px; line-height: 1.6; }
+
+  .section-title { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin: 0 0 12px 4px; }
+
+  /* Resultats */
+  .results { display: flex; flex-direction: column; gap: 12px; }
+  .result {
+    display: block; text-decoration: none; color: inherit;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 14px 16px; box-shadow: var(--shadow);
+    transition: transform .16s cubic-bezier(.2,.8,.2,1), box-shadow .16s ease, border-color .16s ease;
+    animation: rise .4s cubic-bezier(.2,.8,.2,1) both;
+  }
+  .result:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,.14); border-color: var(--accent); }
+  .result:active { transform: translateY(0) scale(.995); }
+  .result .top { display: flex; align-items: center; gap: 9px; margin-bottom: 6px; }
+  .result .favicon { width: 18px; height: 18px; border-radius: 5px; flex: none; position: relative; overflow: hidden; background: linear-gradient(90deg,#4898ff,#00ffff); }
+  .result .favicon img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .result .host { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .result .title { font-size: 16px; font-weight: 600; color: var(--link); line-height: 1.35; margin: 0 0 4px; }
+  .result .snippet { font-size: 13.5px; color: var(--muted); line-height: 1.5; margin: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+  /* Squelette de chargement */
+  .skeleton { display: flex; flex-direction: column; gap: 12px; }
+  .sk {
+    height: 78px; border-radius: 14px; border: 1px solid var(--border);
+    background: linear-gradient(100deg, var(--panel) 30%, var(--panel-2) 50%, var(--panel) 70%);
+    background-size: 200% 100%; animation: shimmer 1.2s linear infinite;
+  }
+  .sk.tall { height: 96px; }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+  .notice { font-size: 13px; color: var(--muted); background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 18px; }
+  .empty { text-align: center; color: var(--muted); padding: 40px 10px; font-size: 15px; }
+  .thinking { display: inline-flex; gap: 4px; margin-left: 4px; }
+  .thinking i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: blink 1s infinite; }
+  .thinking i:nth-child(2){ animation-delay:.15s } .thinking i:nth-child(3){ animation-delay:.3s }
+  @keyframes blink { 0%,100%{opacity:.25} 50%{opacity:1} }
+</style>
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute"><defs>
+    <linearGradient id="ovgrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4898ff"/><stop offset="1" stop-color="#00d4ff"/>
+    </linearGradient>
+  </defs></svg>
+
+  <div class="wrap">
+    <div class="brand-row">
+      <div class="brand-mark"><svg viewBox="0 0 24 24"><path d="M12 2l2.2 6L20 10l-5.8 2L12 18l-2.2-6L4 10l5.8-2z"/></svg></div>
+      <div>
+        <div class="brand-name"><span class="g">zaalis</span> labs ide</div>
+        <div class="brand-sub">Recherche intelligente</div>
+      </div>
+      <div class="model-badge" id="model-badge">zaalis nova</div>
+    </div>
+
+    <form class="refine" id="refine-form">
+      <input type="text" id="refine-input" autocomplete="off" placeholder="Affiner la recherche IA…">
+      <button class="go" id="refine-go" type="submit" title="Rechercher">
+        <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+      </button>
+    </form>
+
+    <div id="content">
+      <div class="overview" id="ov-skel" style="border-left:0;padding-left:20px">
+        <div class="ov-head"><span class="ov-title">Synthèse zaalis labs ide</span><span class="thinking"><i></i><i></i><i></i></span></div>
+        <div class="sk" style="height:16px;margin-bottom:8px"></div>
+        <div class="sk" style="height:16px;width:80%"></div>
+      </div>
+      <div class="section-title">Sources</div>
+      <div class="skeleton">
+        <div class="sk tall"></div><div class="sk tall"></div><div class="sk tall"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const wv = window.zaalisBridge;
+  const SEP = "\x1f";
+  const post = (...p) => { if (wv) wv.postMessage(p.join(SEP)); };
+  const $ = id => document.getElementById(id);
+
+  // Theme injecte par le natif (localStorage) avant chargement.
+  (function () {
+    try { if ((localStorage.getItem('zaalis_theme') || 'light') === 'dark') document.body.classList.add('dark-mode'); } catch (e) {}
+  })();
+
+  function currentQuery() {
+    try { return decodeURIComponent((location.hash || '').replace(/^#/, '')).trim(); } catch (e) { return ''; }
+  }
+
+  function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return u; } }
+  function faviconUrl(u) { try { return "https://www.google.com/s2/favicons?sz=64&format=png&domain=" + encodeURIComponent(new URL(u).hostname); } catch (e) { return ""; } }
+  function esc(s) { return String(s).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
+  function safeHttpUrl(raw) {
+    try { const u = new URL(String(raw || "")); return (u.protocol === "https:" || u.protocol === "http:") ? u.href : ""; }
+    catch (e) { return ""; }
+  }
+
+  function runSearch(q) {
+    if (!q) return;
+    location.hash = encodeURIComponent(q);
+    $("refine-input").value = q;
+    showSkeleton();
+    post("runAiSearch", q);
+  }
+
+  function showSkeleton() {
+    $("content").innerHTML =
+      '<div class="overview" style="border-left:0;padding-left:20px">' +
+        '<div class="ov-head"><span class="ov-title">Synthèse zaalis labs ide</span><span class="thinking"><i></i><i></i><i></i></span></div>' +
+        '<div class="sk" style="height:16px;margin-bottom:8px"></div><div class="sk" style="height:16px;width:80%"></div>' +
+      '</div>' +
+      '<div class="section-title">Sources</div>' +
+      '<div class="skeleton"><div class="sk tall"></div><div class="sk tall"></div><div class="sk tall"></div></div>';
+  }
+
+  let renderedQuery = null;
+
+  // Seconde phase : la synthese generative arrive apres les sources.
+  // On ne re-rend pas tout (scroll + animations preservés), on remplace
+  // juste le texte de la synthese en douceur.
+  function updateOverviewOnly(d) {
+    const ov = document.querySelector(".overview");
+    if (!ov) return false;
+    const p = ov.querySelector("p");
+    const dots = ov.querySelector(".thinking");
+    if (dots) dots.remove();
+    if (p && d.overview) {
+      p.style.transition = "opacity .18s ease";
+      p.style.opacity = "0";
+      setTimeout(() => { p.textContent = d.overview; p.style.opacity = "1"; }, 180);
+    }
+    if (d.aiLive) {
+      const t = ov.querySelector(".ov-title");
+      if (t && !/·/.test(t.textContent)) t.textContent += " · " + ($("model-badge").textContent || "IA");
+    }
+    return true;
+  }
+
+  function render(d) {
+    const q = d.query || currentQuery();
+    // Réponse tardive d'une recherche précédente : on l'ignore.
+    if (d.query && currentQuery() && d.query !== currentQuery()) return;
+    if (d.model) $("model-badge").textContent = d.model;
+    const results = Array.isArray(d.results)
+      ? d.results.map(r => Object.assign({}, r, { url: safeHttpUrl(r && r.url) })).filter(r => r.url)
+      : [];
+
+    // Mise a jour douce si les sources de cette requete sont deja affichees.
+    if (renderedQuery === q && document.querySelector(".results") && updateOverviewOnly(d)) return;
+    renderedQuery = q;
+    let html = "";
+
+    if (d.error === 'offline') {
+      html += '<div class="notice">Mode local sécurisé actif : le réseau externe est coupé. Désactivez-le dans Paramètres → Confidentialité pour utiliser la recherche IA.</div>';
+    } else if (d.error === 'fetch') {
+      html += '<div class="notice">Impossible de joindre le service de recherche pour le moment. Voici des liens directs vers les moteurs.</div>';
+    }
+
+    if (d.overview) {
+      html +=
+        '<div class="overview">' +
+          '<div class="ov-head"><span class="spark"><svg viewBox="0 0 24 24"><path d="M12 2l2.2 6L20 10l-5.8 2L12 18l-2.2-6L4 10l5.8-2z"/></svg></span>' +
+          '<span class="ov-title">Synthèse zaalis labs ide</span>' +
+          (d.pendingAi ? '<span class="thinking"><i></i><i></i><i></i></span>' : '') +
+          '</div>' +
+          '<p>' + esc(d.overview) + '</p>' +
+        '</div>';
+    }
+
+    if (!results.length) {
+      html += '<div class="empty">Aucun résultat pour « ' + esc(q) + ' ».</div>';
+    } else {
+      html += '<div class="section-title">Sources · ' + results.length + '</div><div class="results">';
+      results.forEach((r, i) => {
+        const fav = faviconUrl(r.url);
+        html +=
+          '<a class="result" href="' + esc(r.url) + '" style="animation-delay:' + (i * 45) + 'ms">' +
+            '<div class="top">' +
+              '<span class="favicon">' + (fav ? '<img src="' + esc(fav) + '" alt="" onerror="this.remove()">' : '') + '</span>' +
+              '<span class="host">' + esc(hostOf(r.url)) + '</span>' +
+            '</div>' +
+            '<div class="title">' + esc(r.title || r.url) + '</div>' +
+            (r.snippet ? '<p class="snippet">' + esc(r.snippet) + '</p>' : '') +
+          '</a>';
+      });
+      html += '</div>';
+    }
+    $("content").innerHTML = html;
+  }
+
+  if (wv) wv.addEventListener('message', e => {
+    const d = e.data;
+    if (d && d.type === 'aiResults') render(d);
+  });
+
+  $("refine-form").addEventListener('submit', e => { e.preventDefault(); runSearch($("refine-input").value.trim()); });
+  window.addEventListener('hashchange', () => { const q = currentQuery(); if (q && q !== $("refine-input").value.trim()) runSearch(q); });
+
+  // Lancement initial.
+  (function () {
+    const q = currentQuery();
+    $("refine-input").value = q;
+    if (q) post("runAiSearch", q);
+  })();
+</script>
+</body>
+</html>
