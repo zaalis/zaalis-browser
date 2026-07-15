@@ -23,6 +23,13 @@
     border-bottom:1px solid var(--border); flex:none; background:var(--menu);
   }
   .head .ttl { font-size:15px; font-weight:600; flex:1; }
+  .account-summary { display:flex; align-items:center; gap:10px; min-width:0; }
+  .account-avatar {
+    width:30px; height:30px; border-radius:50%; flex:none; overflow:hidden;
+    display:flex; align-items:center; justify-content:center;
+    color:#fff; font-size:12px; font-weight:700; background:#9aa0a6;
+  }
+  .account-avatar img { width:100%; height:100%; object-fit:cover; }
   .ibtn {
     width:32px; height:32px; border-radius:50%; display:flex; align-items:center;
     justify-content:center; color:var(--text); flex:none;
@@ -98,7 +105,30 @@
   .hist-del:hover { background:rgba(128,128,128,.2); color:var(--danger); }
   .hist-del svg { width:16px; height:16px; }
   .hist-toggle-group { padding:6px 14px 10px; border-bottom:1px solid var(--border); }
+  .hist-search-box { display:flex; align-items:center; gap:8px; margin-top:8px; padding:7px 11px;
+    background:var(--row); border:1px solid var(--border); border-radius:10px; }
+  .hist-search-box svg { width:15px; height:15px; fill:none; stroke:var(--muted); stroke-width:2; flex:none; }
+  .hist-search-box input { flex:1; border:none; outline:none; background:transparent; color:var(--text);
+    font:inherit; font-size:13px; }
   .empty { color:var(--muted); font-size:13px; padding:18px 10px; text-align:center; }
+
+  /* ----- Telechargements ----- */
+  .dl-row { align-items:center; }
+  .dl-row .thumb { width:26px; height:26px; flex:none; display:flex; align-items:center; justify-content:center; }
+  .dl-row .thumb img { width:26px; height:26px; object-fit:contain; display:block; }
+  .dl-row .thumb svg { width:22px; height:22px; color:var(--muted); fill:none; stroke:currentColor; stroke-width:1.6; }
+  .dl-row .t { font-weight:600; }
+  .dl-row.off .t { color:var(--muted); text-decoration:line-through; }
+  .dl-btn2 {
+    width:28px; height:28px; border-radius:50%; display:flex; align-items:center;
+    justify-content:center; color:var(--muted); flex:none;
+    transition:background .12s ease, color .12s ease, transform .18s cubic-bezier(.34,1.56,.64,1);
+  }
+  .dl-btn2:hover { background:rgba(128,128,128,.2); color:var(--text); }
+  .dl-btn2:active { transform:scale(.88); }
+  .dl-btn2.off { opacity:.3; pointer-events:none; }
+  .dl-btn2.danger-btn:hover { color:var(--danger); }
+  .dl-btn2 svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
 </style>
 </head>
 
@@ -114,8 +144,10 @@
   <div class="body screen" id="screen-menu">
     <div class="group">
       <div class="menu-row static">
-        <div class="icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-4 5-6 8-6s6.2 2 8 6"/></svg></div>
-        <div class="main"><div class="label">zaalis browser</div><div class="hint">Reglages locaux</div></div>
+        <div class="account-summary">
+          <div class="account-avatar" id="account-avatar">I</div>
+          <div class="main"><div class="label" id="account-name">Invité</div><div class="hint" id="account-hint">Réglages locaux</div></div>
+        </div>
       </div>
     </div>
 
@@ -136,13 +168,32 @@
         <div class="main"><div class="label">Confidentialite et securite</div></div>
         <div class="chev">&rsaquo;</div>
       </div>
+      <div class="menu-row" data-open="control">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M7 12h10"/><path d="M10 18h4"/></svg></div>
+        <div class="main"><div class="label">Controle</div><div class="hint">Onglets et session</div></div>
+        <div class="chev">&rsaquo;</div>
+      </div>
+      <div class="menu-row" data-open="voice">
+        <div class="icon"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"/><path d="M12 18v3"/></svg></div>
+        <div class="main"><div class="label">Recherche vocale</div><div class="hint" id="voice-menu-hint">Rechercher sur le Web avec la voix</div></div>
+        <div class="chev">&rsaquo;</div>
+      </div>
     </div>
 
     <div class="group">
       <div class="group-title">Navigation</div>
+      <div class="menu-row" id="open-incognito">
+        <div class="icon"><svg viewBox="0 0 24 24"><circle cx="7.5" cy="15" r="3"/><circle cx="16.5" cy="15" r="3"/><path d="M10.5 15h3"/><path d="M4 12l2-5h12l2 5"/></svg></div>
+        <div class="main"><div class="label">Nouvel onglet privé</div><div class="hint">Navigation privée, non enregistrée (⌘⇧N)</div></div>
+      </div>
       <div class="menu-row" id="open-history">
         <div class="icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l4 2"/></svg></div>
         <div class="main"><div class="label">Historique</div><div class="hint" id="counts"></div></div>
+        <div class="chev">&rsaquo;</div>
+      </div>
+      <div class="menu-row" id="open-downloads">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg></div>
+        <div class="main"><div class="label">Telechargements recents</div><div class="hint" id="dl-counts"></div></div>
         <div class="chev">&rsaquo;</div>
       </div>
     </div>
@@ -247,11 +298,62 @@
         <div class="main"><div class="label">Bloquer les popups</div><div class="hint">Ignore les nouvelles fenetres de sites</div></div>
         <div class="switch" id="block-popups"></div>
       </div>
+      <div class="menu-row" id="https-only-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>
+        <div class="main"><div class="label">HTTPS d'abord</div><div class="hint">Bascule les sites en connexion securisee</div></div>
+        <div class="switch" id="https-only"></div>
+      </div>
+      <div class="menu-row" id="safe-browsing-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <div class="main"><div class="label">Navigation securisee</div><div class="hint">Avertit sur les sites dangereux connus</div></div>
+        <div class="switch" id="safe-browsing"></div>
+      </div>
+      <div class="menu-row" id="reset-permissions">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6v6l4 2"/></svg></div>
+        <div class="main"><div class="label">Reinitialiser les permissions des sites</div><div class="hint">Camera, micro, position, notifications</div></div>
+      </div>
       <div class="menu-row danger" id="clear-bookmarks">
         <div class="icon"><svg viewBox="0 0 24 24"><path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/><path d="M8 8l8 8"/></svg></div>
         <div class="main"><div class="label">Effacer les favoris</div></div>
       </div>
     </div>
+  </div>
+
+  <!-- ----- Controle ----- -->
+  <div class="body screen" id="screen-control" style="display:none">
+    <div class="group">
+      <div class="menu-row" id="restore-tabs-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M4 5h16v12H4z"/><path d="M8 21h8"/><path d="M12 17v4"/></svg></div>
+        <div class="main"><div class="label">Garder onglets</div><div class="hint">Rouvre les onglets au prochain lancement</div></div>
+        <div class="switch" id="restore-tabs"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ----- Recherche vocale : le modèle reste configuré ici uniquement ----- -->
+  <div class="body screen" id="screen-voice" style="display:none">
+    <div class="group">
+      <div class="group-title">Recherche à la voix</div>
+      <div class="menu-row" id="voice-model-row">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 2l2.2 6L20 10l-5.8 2L12 18l-2.2-6L4 10l5.8-2z"/></svg></div>
+        <div class="main"><div class="label">Modèle IA</div><div class="hint" id="voice-model-hint"></div></div>
+        <div class="chev">&rsaquo;</div>
+      </div>
+    </div>
+    <div class="group">
+      <div class="menu-row static">
+        <div class="icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16h.01"/></svg></div>
+        <div class="main"><div class="label">Recherche Web par la voix</div><div class="hint">Votre phrase est transcrite localement puis recherchée immédiatement sur le Web.</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="body screen" id="screen-voiceproviders" style="display:none">
+    <div class="group" id="voice-provider-list"></div>
+  </div>
+
+  <div class="body screen" id="screen-voicesub" style="display:none">
+    <div class="group" id="voice-submodel-list"></div>
   </div>
 
   <!-- ----- Mode developpeur ----- -->
@@ -288,46 +390,150 @@
         <div class="main"><div class="label">Enregistrer l'historique</div></div>
         <div class="switch" id="history-enabled"></div>
       </div>
+      <div class="hist-search-box">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="hist-search" type="text" autocomplete="off" placeholder="Rechercher dans l'historique…">
+      </div>
     </div>
     <div id="history-list"></div>
   </div>
 
+  <!-- ----- Telechargements ----- -->
+  <div class="body screen" id="screen-downloads" style="display:none">
+    <div id="downloads-list"></div>
+  </div>
+
 <script>
-  const wv = window.chrome && window.chrome.webview;
+  const wv = window.zaalisBridge;
   const SEP = "\x1f";
   const post = (...p) => { if (wv) wv.postMessage(p.join(SEP)); };
   const $ = id => document.getElementById(id);
   let state = { zoomPct:100 };
 
-  const SCREENS = ["menu","appearance","search","privacy","devmode","history","aimodels","aisub"];
+  const SCREENS = ["menu","appearance","search","privacy","control","voice","devmode","history","downloads","aimodels","aisub","voiceproviders","voicesub"];
   const TITLES = { menu:"Parametres", appearance:"Apparence", search:"Recherche",
-                    privacy:"Confidentialite et securite", devmode:"Mode developpeur", history:"Historique",
-                    aimodels:"Modele IA", aisub:"Sous-modele" };
+                    privacy:"Confidentialite et securite", control:"Controle", devmode:"Mode developpeur", history:"Historique",
+                    downloads:"Telechargements", aimodels:"Modele IA", aisub:"Sous-modele",
+                    voice:"Recherche vocale", voiceproviders:"Modèle IA", voicesub:"Sous-modèle IA" };
   // Ecran parent pour le bouton retour (navigation a plusieurs niveaux).
-  const PARENT = { appearance:"menu", search:"menu", privacy:"menu", devmode:"menu",
-                   history:"menu", aimodels:"search", aisub:"aimodels" };
+  const PARENT = { appearance:"menu", search:"menu", privacy:"menu", control:"menu", devmode:"menu",
+                   history:"menu", downloads:"menu", aimodels:"search", aisub:"aimodels",
+                   voice:"menu", voiceproviders:"voice", voicesub:"voiceproviders" };
   let currentScreen = "menu";
   let pendingProvider = null;   // provider en cours de selection dans aisub
+  let pendingVoiceProvider = null;
 
   function showScreen(name) {
     currentScreen = name;
     SCREENS.forEach(s => { $("screen-" + s).style.display = (s === name) ? "" : "none"; });
     $("title").textContent = TITLES[name] || "Parametres";
     $("back").style.display = (name === "menu") ? "none" : "";
-    $("clear").style.display = (name === "history") ? "" : "none";
+    $("clear").style.display = (name === "history" || name === "downloads") ? "" : "none";
+    if (name === "downloads") renderDownloads();
     if (name === "aimodels") renderProviders();
     if (name === "aisub") renderSubmodels();
+    if (name === "voiceproviders") renderVoiceProviders();
+    if (name === "voicesub") renderVoiceSubmodels();
   }
 
   function faviconUrl(u) {
-    try { return "https://www.google.com/s2/favicons?sz=64&domain=" + encodeURIComponent(new URL(u).hostname); }
+    try { return "https://www.google.com/s2/favicons?sz=64&format=png&domain=" + encodeURIComponent(new URL(u).hostname); }
     catch (e) { return ""; }
   }
 
+  // ----- Telechargements -----
+  let downloads = [];
+
+  function fmtSize(bytes) {
+    const b = Number(bytes) || 0;
+    if (b < 1024) return b + " o";
+    const u = ["Ko","Mo","Go","To"];
+    let v = b / 1024, i = 0;
+    while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+    return (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10).toString().replace(".", ",") + " " + u[i];
+  }
+
+  function fmtDate(ts) {
+    const d = new Date(Number(ts) || 0);
+    if (!ts || isNaN(d.getTime())) return "";
+    return d.toLocaleDateString() + " " + d.toLocaleTimeString().slice(0, 5);
+  }
+
+  function dlSub(d) {
+    if (d.state === "progressing") return d.total ? fmtSize(d.received) + " sur " + fmtSize(d.total) : fmtSize(d.received);
+    if (d.state === "cancelled")   return "Telechargement annule";
+    if (d.state === "interrupted") return "Telechargement interrompu";
+    return fmtSize(d.total || d.received) + " • " + fmtDate(d.startedAt);
+  }
+
+  function dlBtn(title, svg, enabled, cls, fn) {
+    const b = document.createElement("div");
+    b.className = "dl-btn2" + (enabled ? "" : " off") + (cls ? " " + cls : "");
+    b.title = title; b.innerHTML = svg;
+    if (enabled) b.onclick = e => { e.stopPropagation(); fn(); };
+    return b;
+  }
+
+  function renderDownloadCount() {
+    const dc = downloads.length || (state && state.downloadCount) || 0;
+    $("dl-counts").textContent = dc ? (String(dc) + " element" + (dc > 1 ? "s" : "")) : "Aucun telechargement";
+  }
+
+  function renderDownloads() {
+    const list = $("downloads-list"); list.innerHTML = "";
+    if (!downloads.length) {
+      const e = document.createElement("div"); e.className = "empty";
+      e.textContent = "Aucun telechargement pour le moment.";
+      list.appendChild(e); return;
+    }
+    downloads.forEach(d => {
+      const el = document.createElement("div");
+      el.className = "hist-item dl-row" + (d.state === "completed" || d.state === "progressing" ? "" : " off");
+      el.title = d.path || d.url || "";
+
+      const th = document.createElement("div"); th.className = "thumb";
+      if (d.state === "completed" && d.icon) {
+        const img = document.createElement("img"); img.alt = ""; img.src = d.icon; th.appendChild(img);
+      } else {
+        th.innerHTML = '<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>';
+      }
+      el.appendChild(th);
+
+      const m = document.createElement("div"); m.className = "meta";
+      const t = document.createElement("div"); t.className = "t"; t.textContent = d.name;
+      const u = document.createElement("div"); u.className = "u"; u.textContent = dlSub(d);
+      m.appendChild(t); m.appendChild(u); el.appendChild(m);
+
+      if (d.state === "progressing") {
+        el.appendChild(dlBtn("Annuler le telechargement",
+          '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+          true, "danger-btn", () => post("cancelDownload", d.id)));
+      } else {
+        const done = d.state === "completed";
+        el.appendChild(dlBtn("Afficher dans le Finder",
+          '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+          done, "", () => post("showDownload", d.id)));
+        el.appendChild(dlBtn("Retirer de la liste",
+          '<svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/></svg>',
+          true, "danger-btn", () => post("removeDownload", d.id)));
+        if (done) el.onclick = () => post("openDownload", d.id);
+      }
+      list.appendChild(el);
+    });
+  }
+
+  let lastHistory = [];
   function renderHistory(items) {
+    if (Array.isArray(items)) lastHistory = items;
+    const q = ($("hist-search") ? $("hist-search").value : "").trim().toLowerCase();
+    const list = q ? lastHistory.filter(it => ((it.title||"") + " " + (it.url||"")).toLowerCase().indexOf(q) !== -1) : lastHistory;
     const h = $("history-list"); h.innerHTML = "";
-    if (!items.length) { const e = document.createElement("div"); e.className="empty"; e.textContent="Aucune navigation pour le moment."; h.appendChild(e); return; }
-    items.forEach(it => {
+    if (!list.length) {
+      const e = document.createElement("div"); e.className="empty";
+      e.textContent = q ? "Aucun resultat pour cette recherche." : "Aucune navigation pour le moment.";
+      h.appendChild(e); return;
+    }
+    list.forEach(it => {
       const el = document.createElement("div"); el.className = "hist-item"; el.title = it.url;
       const fav = document.createElement("div"); fav.className = "favicon";
       const src = faviconUrl(it.url);
@@ -353,6 +559,24 @@
     });
   }
   function setSwitch(id, on) { $(id).classList.toggle("on", !!on); }
+
+  function renderAccount() {
+    const account = state.profile && state.profile.current;
+    const avatar = $("account-avatar");
+    avatar.innerHTML = "";
+    avatar.style.background = account && account.color ? account.color : "#9aa0a6";
+    if (account && account.photo) {
+      const img = document.createElement("img");
+      img.alt = "";
+      img.src = "zaalis://home/profile-avatar/" + account.id + "?v=" + account.photo;
+      img.onerror = () => { img.remove(); avatar.textContent = account.name.trim().charAt(0).toUpperCase() || "?"; };
+      avatar.appendChild(img);
+    } else {
+      avatar.textContent = account ? (account.name.trim().charAt(0).toUpperCase() || "?") : "I";
+    }
+    $("account-name").textContent = account ? account.name : "Invité";
+    $("account-hint").textContent = account ? "Profil local" : "Réglages locaux";
+  }
 
   // ----- Etat de connexion a zaalis labs ide -------------------------------
   const AI_STATUS_TEXTS = {
@@ -428,40 +652,98 @@
       box.appendChild(row);
     });
   }
+
+  function renderVoiceProviders() {
+    const box = $("voice-provider-list"); box.innerHTML = "";
+    const provs = state.aiProviders || {};
+    Object.keys(provs).forEach(key => {
+      const p = provs[key];
+      const row = document.createElement("div"); row.className = "menu-row";
+      const sel = key === state.voiceProvider;
+      row.innerHTML =
+        '<div class="icon"><svg viewBox="0 0 24 24"><path d="M12 2l2.2 6L20 10l-5.8 2L12 18l-2.2-6L4 10l5.8-2z"/></svg></div>' +
+        '<div class="main"><div class="label"></div><div class="hint"></div></div>' +
+        '<div class="chev">' + (sel ? "&#10003;&nbsp;" : "") + '&rsaquo;</div>';
+      row.querySelector(".label").textContent = p.label;
+      row.querySelector(".hint").textContent = sel ? modelLabel(state.voiceSubmodel) : (p.submodels.length + " modeles");
+      row.onclick = () => { pendingVoiceProvider = key; showScreen("voicesub"); };
+      box.appendChild(row);
+    });
+  }
+
+  function renderVoiceSubmodels() {
+    const box = $("voice-submodel-list"); box.innerHTML = "";
+    const prov = (state.aiProviders || {})[pendingVoiceProvider];
+    if (!prov) { showScreen("voiceproviders"); return; }
+    $("title").textContent = prov.label;
+    prov.submodels.forEach(id => {
+      const row = document.createElement("div"); row.className = "menu-row";
+      const sel = pendingVoiceProvider === state.voiceProvider && id === state.voiceSubmodel;
+      row.innerHTML = '<div class="main"><div class="label"></div><div class="hint"></div></div>' +
+        (sel ? '<div class="chev" style="color:var(--accent)">&#10003;</div>' : "");
+      row.querySelector(".label").textContent = modelLabel(id);
+      row.querySelector(".hint").textContent = id;
+      row.onclick = () => {
+        post("setVoiceProvider", pendingVoiceProvider);
+        post("setVoiceSubmodel", id);
+        showScreen("voice");
+      };
+      box.appendChild(row);
+    });
+  }
+
   function wireSwitch(rowId, switchId, action) {
     $(rowId).onclick = () => post(action, $(switchId).classList.contains("on") ? "0" : "1");
   }
   function renderState(d) {
     state = d || state;
     document.body.classList.toggle("dark", state.theme === "dark");
+    renderAccount();
     setSwitch("theme-sw", state.theme === "dark");
     setSwitch("offline", state.offline);
     setSwitch("safe-search", state.safeSearch);
     setSwitch("show-bookmarks", state.showBookmarks);
     setSwitch("history-enabled", state.historyEnabled);
     setSwitch("block-popups", state.blockPopups);
+    setSwitch("https-only", state.httpsOnly);
+    setSwitch("safe-browsing", state.safeBrowsing);
     setSwitch("context-menus", state.contextMenus);
     setSwitch("dev-tools", state.devTools);
     setSwitch("status-bar", state.statusBar);
     setSwitch("zoom-controls", state.zoomControls);
+    setSwitch("restore-tabs", state.restoreTabs);
     setSwitch("ai-overview", state.aiOverview);
     $("search-engine").value = state.searchEngine || "google";
     const prov = (state.aiProviders || {})[state.aiProvider];
     $("ai-model-hint").textContent = prov ? (prov.label + " — " + modelLabel(state.aiSubmodel)) : "";
+    const voiceProv = (state.aiProviders || {})[state.voiceProvider];
+    const voiceModel = voiceProv ? (voiceProv.label + " — " + modelLabel(state.voiceSubmodel)) : "";
+    $("voice-model-hint").textContent = voiceModel;
+    $("voice-menu-hint").textContent = voiceModel || "Choisir le modèle de conversation";
     renderAiConnect();
     if (currentScreen === "aimodels") renderProviders();
     else if (currentScreen === "aisub") renderSubmodels();
+    else if (currentScreen === "voiceproviders") renderVoiceProviders();
+    else if (currentScreen === "voicesub") renderVoiceSubmodels();
     $("zoom-value").textContent = String(state.zoomPct || 100) + "%";
     $("counts").textContent = String(state.historyCount || 0) + " elements / " + String(state.bookmarkCount || 0) + " favoris";
+    renderDownloadCount();
   }
 
   document.querySelectorAll("[data-open]").forEach(row => {
     row.onclick = () => showScreen(row.dataset.open);
   });
+  $("open-incognito").onclick = () => { post("newIncognito"); post("closePanel"); };
   $("open-history").onclick = () => { showScreen("history"); post("getHistory"); };
+  $("hist-search").addEventListener("input", () => renderHistory());
+  $("open-downloads").onclick = () => { showScreen("downloads"); post("getDownloads"); };
   $("back").onclick = () => showScreen(PARENT[currentScreen] || "menu");
   $("ai-model-row").onclick = () => showScreen("aimodels");
-  $("clear").onclick = () => { if (confirm("Effacer tout l'historique ?")) post("clearHistory"); };
+  $("voice-model-row").onclick = () => showScreen("voiceproviders");
+  $("clear").onclick = () => {
+    if (currentScreen === "downloads") { if (confirm("Effacer la liste des telechargements ?")) post("clearDownloads"); }
+    else if (confirm("Effacer tout l'historique ?")) post("clearHistory");
+  };
   $("close").onclick = () => post("closePanel");
   $("theme-row").onclick = () => post("setTheme", $("theme-sw").classList.contains("on") ? "light" : "dark");
   $("search-engine").onclick = e => e.stopPropagation();
@@ -482,16 +764,29 @@
   wireSwitch("show-bookmarks-row", "show-bookmarks", "setShowBookmarks");
   wireSwitch("history-enabled-row", "history-enabled", "setHistoryEnabled");
   wireSwitch("block-popups-row", "block-popups", "setBlockPopups");
+  wireSwitch("https-only-row", "https-only", "setHttpsOnly");
+  wireSwitch("safe-browsing-row", "safe-browsing", "setSafeBrowsing");
+  $("reset-permissions").onclick = () => { if (confirm("Reinitialiser les permissions (camera, micro, position, notifications) pour tous les sites ?")) post("resetPermissions"); };
   wireSwitch("context-menus-row", "context-menus", "setContextMenus");
   wireSwitch("dev-tools-row", "dev-tools", "setDevTools");
   wireSwitch("status-bar-row", "status-bar", "setStatusBar");
   wireSwitch("zoom-controls-row", "zoom-controls", "setZoomControls");
+  wireSwitch("restore-tabs-row", "restore-tabs", "setRestoreTabs");
 
   if (wv) wv.addEventListener("message", e => {
     const d = e.data;
     if (!d) return;
     if (d.type === "state") renderState(d);
     else if (d.type === "history") { showScreen("history"); renderHistory(d.items); }
+    else if (d.type === "downloads") {
+      downloads = Array.isArray(d.items) ? d.items : [];
+      if (currentScreen === "downloads") renderDownloads();
+      renderDownloadCount();
+    }
+    else if (d.type === "showDownloads") {
+      if (Array.isArray(d.items)) downloads = d.items;
+      showScreen("downloads");
+    }
     else if (d.type === "showMenu") showScreen("menu");
   });
 

@@ -1,10 +1,11 @@
 // Preload injecté dans chaque onglet de contenu.
-// Ne fournit `window.chrome.webview` que pour les pages internes zaalis://home/*
+// Ne fournit `window.zaalisBridge` que pour les pages internes zaalis://home/*
 // (la page d'accueil s'en sert pour piloter les raccourcis et la recherche).
-// Sur les sites externes, l'objet est également présent mais inoffensif : il
-// se contente d'envoyer un message IPC que le main peut ignorer.
+// Il ne faut surtout pas l'exposer aux sites externes : certains, dont YouTube,
+// détectent cette API comme un environnement WebView et adaptent leur routage ou
+// leur comportement d'autoplay.
 
-const { ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
 const listeners = new Set();
 
@@ -26,6 +27,8 @@ const webview = {
   },
 };
 
-if (!window.chrome) window.chrome = {};
-try { Object.defineProperty(window.chrome, 'webview', { value: webview, configurable: true, writable: false }); }
-catch { window.chrome.webview = webview; }
+if (location.protocol === 'zaalis:') {
+  // Le pont n'est publié que pour les pages de l'application. Les sites
+  // externes ne voient ni API Electron, ni objet ajouté par le navigateur.
+  contextBridge.exposeInMainWorld('zaalisBridge', webview);
+}

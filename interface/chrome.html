@@ -5,6 +5,7 @@
 <style>
   :root {
     --sep: 1rem;
+    --bookmarks-bar-height: 60px;
   }
   /* ----- Theme clair (adouci, pas blanc pur) ----- */
   body {
@@ -64,11 +65,21 @@
     background: linear-gradient(90deg, #4898ff, #00ffff);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
   }
-  .tabs { display: flex; align-items: flex-end; gap: 4px; min-width: 0; }
+  /* La bande d'onglets ne prend que la place de ses onglets : le bouton "+"
+     reste ainsi colle au dernier onglet (comme Chrome), et l'espace restant
+     est un vide deplacable pour la fenetre. */
+  .tabs { display: flex; align-items: flex-end; gap: 4px; flex: 0 1 auto; min-width: 0; overflow: hidden; }
+  /* Fin separateur entre le dernier onglet et le "+". */
+  .tabstrip-sep {
+    width: 1px; height: 18px; flex: none;
+    margin: 0 3px 8px; border-radius: 1px;
+    background: var(--border);
+  }
+  .tabstrip-fill { flex: 1 1 auto; min-width: 0; height: 100%; }
   .tab {
     display: flex; align-items: center; gap: 8px;
-    height: 34px; max-width: 220px; min-width: 96px;
-    padding: 0 8px 0 14px;
+    height: 34px; width: 240px; min-width: 72px; max-width: 240px; flex: 1 1 240px;
+    padding: 0 8px 0 12px;
     background: var(--surface);
     border-radius: 12px 12px 0 0;
     font-size: 13px; color: var(--muted);
@@ -78,19 +89,23 @@
   .tab:hover { background: var(--surface-h); }
   /* Après un clic droit, macOS n'émet pas pointerleave quand le menu natif
      s'ouvre : la tab garderait le fond gris du :hover. On le neutralise. */
-  .tab.suppress-hover:hover { background: var(--surface); }
+  .tab.suppress-hover:hover { background: var(--bar); }
   .tab.suppress-hover.active:hover { background: var(--active); }
   .tab.active {
     background: var(--active); color: var(--text); font-weight: 500;
     box-shadow: 0 -1px 0 rgba(0,0,0,.03), 0 -3px 10px rgba(0,0,0,.06);
   }
+  /* Les onglets non selectionnes reprennent exactement la teinte de la
+     barre d'outils ; l'onglet actif reste ainsi le seul mis en avant. */
+  .tab:not(.active):not(.split) { background: var(--bar); }
+  .tab.suppress-hover:not(.active):not(.split):hover { background: var(--bar); }
   .tab.dragging { box-shadow: 0 6px 18px rgba(0,0,0,.30); cursor: grabbing; z-index: 10; }
   /* Onglets lies par la vue fractionnee : les deux membres forment un groupe
      compact (facon Google) qui occupe ~la largeur d'un seul onglet, pas deux.
      Chaque membre se reduit a sa favicon (+ fermer au survol). */
   .tab.split {
     position: relative;
-    min-width: 0; max-width: 54px;
+    width: 54px; min-width: 54px; max-width: 54px; flex: 0 0 54px;
     padding: 0 6px; justify-content: center;
     background: linear-gradient(180deg, rgba(72,152,255,.10), rgba(0,212,255,.14));
   }
@@ -127,7 +142,13 @@
   .tab.split-r { border-top-left-radius: 0; margin-left: -4px; }
   .tab.split-l::after { right: 0; border-top-right-radius: 0; border-bottom-right-radius: 0; }
   .tab.split-r::after { left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; }
-  .tab .title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tab .title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tab-fav {
+    width: 16px; height: 16px; border-radius: 4px; flex: none;
+    position: relative; overflow: hidden;
+  }
+  .tab-fav.fallback { background: linear-gradient(90deg, #4898ff, #00ffff); }
+  .tab-fav img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   .tab .close {
     width: 18px; height: 18px; border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
@@ -233,22 +254,67 @@
   /* ---------- Barre de favoris ---------- */
   .bookmarks-bar {
     display: flex; align-items: center; gap: 6px;
-    height: 36px; padding: 0 10px;
+    /* Une vraie zone respirante, avec les icones et le profil centres entre
+       les deux limites de la barre. */
+    height: var(--bookmarks-bar-height); padding: 14px 24px 15px;
     background: var(--bar);
     border-top: 1px solid var(--border);
   }
-  body.hide-bookmarks .bookmarks-bar { display: none; }
+  /* Cette zone appartient uniquement à l'accueil. Les pages web gardent une
+     chrome compacte : aucun favori, profil ou lanceur ne doit y rester. */
+  .bookmarks-bar { display: none; }
+  body.home-context .bookmarks-bar { display: flex; }
   .bookmarks {
     display: flex; align-items: center; gap: 4px;
     flex: 1; min-width: 0; overflow: hidden; height: 100%;
   }
+  .bookmark-folder-btn {
+    height: 28px; min-width: 104px; padding: 0 10px 0 9px; border-radius: 8px; flex: none;
+    display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 12.5px;
+    transition: background .12s ease, transform .18s cubic-bezier(.34,1.56,.64,1);
+  }
+  .bookmark-folder-btn:hover,
+  body.bookmarks-open .bookmark-folder-btn { background: var(--surface-h); }
+  .bookmark-folder-btn:active { transform: scale(.94); }
+  .bookmark-folder-btn svg {
+    width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.9;
+    stroke-linecap: round; stroke-linejoin: round; flex: none;
+  }
+  .bookmark-folder-btn .count { color: var(--muted); font-size: 11.5px; margin-left: auto; }
+  .bookmarks-pop {
+    position: absolute; top: calc(95px + var(--bookmarks-bar-height)); left: 24px; width: 340px; max-width: calc(100vw - 48px);
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); border-radius: 16px;
+    padding: 8px; z-index: 60;
+    box-shadow: 0 10px 34px rgba(0,0,0,.28);
+    opacity: 0; pointer-events: none;
+    transform: translateY(-6px) scale(.98); transform-origin: top left;
+    transition: opacity .16s cubic-bezier(.2,.8,.2,1), transform .16s cubic-bezier(.2,.8,.2,1);
+  }
+  body.bookmarks-open .bookmarks-pop { opacity: 1; pointer-events: auto; transform: none; }
+  .bp-list {
+    max-height: 320px; overflow-y: auto; overflow-x: hidden;
+    padding: 2px; scrollbar-width: thin;
+  }
+  .bp-row {
+    display: flex; align-items: center; gap: 10px;
+    height: 34px; padding: 0 8px; border-radius: 8px;
+    font-size: 13px; color: var(--text); cursor: default;
+    transition: background .1s ease;
+  }
+  .bp-row:hover { background: var(--surface-h); }
+  .bp-row .favicon { width: 16px; height: 16px; border-radius: 4px; flex: none; position: relative; overflow: hidden; }
+  .bp-row .favicon.fallback { background: linear-gradient(90deg, #4898ff, #00ffff); }
+  .bp-row .favicon img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .bp-row .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bp-empty { color: var(--muted); font-size: 12.5px; padding: 14px 10px; text-align: center; }
 
   /* ---------- Profil (rond a droite de la barre de favoris) ---------- */
   .profile-chip {
-    width: 26px; height: 26px; border-radius: 50%; flex: none;
+    width: 30px; height: 30px; border-radius: 50%; flex: none;
     display: flex; align-items: center; justify-content: center;
     font-size: 12px; font-weight: 700; color: #fff; overflow: hidden;
-    background: #9aa0a6; margin-top: 3px;
+    background: #9aa0a6;
     transition: box-shadow .15s ease, transform .18s cubic-bezier(.34,1.56,.64,1);
   }
   .profile-chip:hover { box-shadow: 0 0 0 3px var(--surface-h); }
@@ -256,8 +322,8 @@
   .profile-chip img { width: 100%; height: 100%; object-fit: cover; }
 
   .profile-pop {
-    position: absolute; top: 136px; right: 8px; width: 320px;
-    max-width: calc(100vw - 16px);
+    position: absolute; top: calc(95px + var(--bookmarks-bar-height)); right: 24px; width: 320px;
+    max-width: calc(100vw - 48px);
     background: var(--surface); color: var(--text);
     border: 1px solid var(--border); border-radius: 18px;
     padding: 14px 16px 16px; z-index: 60;
@@ -396,43 +462,87 @@
   .si-item .si-tx b { font-weight: 600; color: var(--text); }
   .si-item.sel { background: var(--surface-h); }
 
+  /* ---------- Informations du site / cookies (facon Chrome) ---------- */
+  .site-info-trigger {
+    width: 28px; height: 28px; border-radius: 50%; flex: none;
+    display: none; align-items: center; justify-content: center;
+    color: var(--muted); cursor: default;
+  }
+  .site-info-trigger.show { display: flex; }
+  .site-info-trigger:hover, .site-info-trigger.on { background: var(--surface-h); color: var(--text); }
+  .site-info-trigger svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .site-info-pop {
+    position: absolute; z-index: 58; width: 400px; max-width: calc(100vw - 24px);
+    padding: 10px; border: 1px solid var(--border); border-radius: 18px;
+    background: var(--surface); color: var(--text); box-shadow: 0 12px 34px rgba(0,0,0,.30);
+    opacity: 0; pointer-events: none; transform: translateY(-6px) scale(.985);
+    transform-origin: top left; transition: opacity .15s ease, transform .15s ease;
+  }
+  body.site-info-open .site-info-pop { opacity: 1; pointer-events: auto; transform: none; }
+  .sip-head { display: flex; align-items: center; gap: 10px; padding: 8px 8px 10px; }
+  .sip-host { flex: 1; min-width: 0; font-size: 15px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sip-close, .sip-back { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--muted); flex: none; }
+  .sip-close:hover, .sip-back:hover { background: var(--surface-h); color: var(--text); }
+  .sip-close svg, .sip-back svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+  .sip-status { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin: 0 2px 6px; border-radius: 12px; background: rgba(26,115,232,.10); color: var(--text); }
+  .sip-status.warn { background: rgba(217,48,37,.10); }
+  .sip-status svg { width: 20px; height: 20px; flex: none; fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .sip-status.warn svg { stroke: var(--danger); }
+  .sip-status .t { font-size: 13.5px; font-weight: 600; }
+  .sip-status .s { margin-top: 2px; color: var(--muted); font-size: 11.5px; }
+  .sip-row { display: flex; align-items: center; gap: 14px; min-height: 60px; padding: 10px 10px; border-radius: 12px; cursor: default; }
+  .sip-row:hover { background: var(--surface-h); }
+  .sip-row .ic { width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; color: var(--muted); flex: none; }
+  .sip-row .ic svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+  .sip-row .copy { flex: 1; min-width: 0; }
+  .sip-row .t { font-size: 14px; font-weight: 600; }
+  .sip-row .s { color: var(--muted); font-size: 12px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sip-row .chev { color: var(--muted); font-size: 25px; line-height: 1; }
+  .sip-divider { height: 1px; background: var(--border); margin: 6px 8px; }
+  .sip-note { color: var(--muted); font-size: 12px; line-height: 1.42; padding: 8px 12px 11px; }
+  .sip-cookie-list { max-height: 190px; overflow: auto; margin: 0 2px 8px; border: 1px solid var(--border); border-radius: 11px; }
+  .sip-cookie { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  .sip-cookie:last-child { border-bottom: 0; }
+  .sip-cookie .n { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sip-cookie .m { margin-top: 2px; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sip-empty { color: var(--muted); font-size: 12.5px; text-align: center; padding: 22px 10px; }
+  .sip-danger { display: flex; align-items: center; justify-content: center; width: calc(100% - 8px); margin: 6px 4px 2px; min-height: 38px; border-radius: 999px; border: 1px solid var(--border); color: var(--danger); font: inherit; font-size: 13px; font-weight: 600; background: transparent; }
+  .sip-danger:hover { background: rgba(217,48,37,.10); }
+
   /* ---------- Lanceur d'applications (facon Google) ---------- */
   /* Bouton : deux carres arrondis superposes, legerement en eventail. Le fond
      s'ouvre un peu plus au survol (animation douce). */
   .launcher-btn {
-    width: 30px; height: 26px; border-radius: 8px; flex: none;
-    position: relative; margin-top: 3px;
+    width: 34px; height: 30px; border-radius: 9px; flex: none;
+    position: relative;
     display: flex; align-items: center; justify-content: center;
     transition: background .15s ease, transform .18s cubic-bezier(.34,1.56,.64,1);
   }
   .launcher-btn:hover { background: var(--surface-h); }
   .launcher-btn:active { transform: scale(.9); }
   .lb-sq {
-    position: absolute; width: 15px; height: 15px; border-radius: 4px;
+    position: absolute; width: 17px; height: 17px; border-radius: 5px;
     display: flex; align-items: center; justify-content: center;
     transition: transform .2s cubic-bezier(.34,1.4,.64,1);
   }
   .lb-back {
-    background: var(--surface-h); border: 1px solid var(--border);
+    background: var(--muted);
     transform: translate(-4px, 3px) rotate(-16deg);
   }
-  body.dark .lb-back { background: #3a3b3e; }
   .lb-front {
     background: linear-gradient(135deg, #4898ff, #00d4ff);
     transform: translate(3px, -2px) rotate(7deg);
     box-shadow: 0 1px 3px rgba(0,0,0,.22);
   }
-  .lb-front svg { width: 9px; height: 9px; }
-  .lb-front circle { fill: #fff; }
-  .lb-back svg { width: 8px; height: 8px; }
-  .lb-back circle { fill: var(--muted); }
+  .lb-front svg { width: 12px; height: 12px; fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .lb-back svg  { width: 11px; height: 11px; fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; opacity: .85; }
   .launcher-btn:hover .lb-back  { transform: translate(-6px, 4px) rotate(-25deg); }
   .launcher-btn:hover .lb-front { transform: translate(4px, -3px) rotate(11deg); }
 
   /* Popup facon Google : grille d'apps arrondie. */
   .launcher-pop {
-    position: absolute; top: 136px; right: 8px; width: 340px;
-    max-width: calc(100vw - 16px);
+    position: absolute; top: calc(95px + var(--bookmarks-bar-height)); right: 24px; width: 340px;
+    max-width: calc(100vw - 48px);
     background: var(--surface); color: var(--text);
     border: 1px solid var(--border); border-radius: 20px;
     padding: 14px 16px 16px; z-index: 60;
@@ -512,31 +622,117 @@
   .lp-menu-item.danger:hover { color: var(--danger); }
   .lp-menu-item svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
-  /* Modale d'ajout d'un raccourci (mode creatif). */
-  .lch-mask {
-    position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,.32);
-    display: flex; align-items: center; justify-content: center;
-    opacity: 0; pointer-events: none; transition: opacity .16s ease;
-  }
-  body.lch-modal-open .lch-mask { opacity: 1; pointer-events: auto; }
-  .lch-modal {
-    width: 340px; max-width: calc(100vw - 32px); background: var(--surface); color: var(--text);
-    border-radius: 16px; padding: 20px 22px 16px; box-shadow: 0 18px 50px rgba(0,0,0,.4);
-    transform: translateY(8px) scale(.98); transition: transform .16s cubic-bezier(.2,.8,.2,1);
-  }
-  body.lch-modal-open .lch-modal { transform: none; }
-  .lch-modal h3 { margin: 0 0 16px; font-size: 17px; font-weight: 500; }
-  .lch-modal input {
+  /* Mini-formulaire d'ajout INTEGRE au popup (pas de masque plein ecran) :
+     il remplace la grille le temps de saisir le lien. */
+  .lp-addform { padding: 10px 2px 2px; }
+  .lp-af-title { font-size: 14px; font-weight: 500; margin: 2px 4px 12px; }
+  .lp-addform input {
     width: 100%; box-sizing: border-box; padding: 11px 13px; font-size: 14px; font-family: inherit;
     color: var(--text); background: transparent; border: 1px solid var(--border); border-radius: 10px;
-    outline: none; margin-bottom: 14px;
+    outline: none; margin-bottom: 12px;
   }
-  .lch-modal input:focus { border-color: var(--accent); }
-  .lch-actions { display: flex; justify-content: flex-end; gap: 10px; }
-  .lch-btn { padding: 8px 18px; border-radius: 999px; border: none; cursor: pointer; font-size: 13.5px; font-family: inherit; font-weight: 500; background: transparent; color: var(--accent); }
-  .lch-btn:hover { background: rgba(26,115,232,.10); }
-  .lch-btn.primary { background: var(--accent); color: #fff; }
-  .lch-btn.primary:disabled { background: var(--border); color: var(--muted); cursor: default; }
+  .lp-addform input:focus { border-color: var(--accent); }
+  .lp-af-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 2px; }
+  .lp-af-btn { padding: 8px 18px; border-radius: 999px; border: none; cursor: pointer; font-size: 13.5px; font-family: inherit; font-weight: 500; background: transparent; color: var(--accent); }
+  .lp-af-btn:hover { background: rgba(26,115,232,.10); }
+  .lp-af-btn.primary { background: var(--accent); color: #fff; }
+  .lp-af-btn.primary:disabled { background: var(--border); color: var(--muted); cursor: default; }
+
+  /* ---------- Telechargements ---------- */
+  /* Le bouton n'existe qu'a partir du premier telechargement de la session,
+     et prend la place de l'etoile favoris de Chrome (a droite de la barre). */
+  .dl-btn { display: none; position: relative; }
+  body.has-downloads .dl-btn { display: flex; }
+  .dl-btn.active { background: var(--surface-h); }
+  .dl-btn .dl-arrow { position: relative; z-index: 1; }
+  /* Anneau de progression : visible uniquement pendant un telechargement. */
+  .dl-btn .dl-ring { position: absolute; inset: 0; width: 34px; height: 34px; opacity: 0; transition: opacity .18s ease; }
+  .dl-btn.busy .dl-ring { opacity: 1; }
+  .dl-ring circle { fill: none; stroke-width: 2.2; }
+  .dl-ring .bg   { stroke: var(--border); }
+  .dl-ring .fill {
+    stroke: var(--accent); stroke-linecap: round;
+    transform: rotate(-90deg); transform-origin: 50% 50%;
+    transition: stroke-dashoffset .2s cubic-bezier(.2,.8,.2,1);
+  }
+  body.dark .dl-ring .fill { stroke: #8ab4f8; }
+  /* Pastille de fin : une petite pulsation quand un fichier vient d'arriver. */
+  @keyframes dl-done { 0% { transform: scale(1); } 40% { transform: scale(1.22); } 100% { transform: scale(1); } }
+  .dl-btn.done .dl-arrow { animation: dl-done .42s cubic-bezier(.34,1.56,.64,1); }
+
+  .dl-pop {
+    position: absolute; top: 94px; right: 10px; width: 380px; max-width: calc(100vw - 20px);
+    background: var(--surface); color: var(--text); border: 1px solid var(--border);
+    border-radius: 16px; padding: 8px; z-index: 50; overflow: hidden;
+    opacity: 0; pointer-events: none;
+    transform: translateY(-6px) scale(.99); transform-origin: top right;
+    transition: opacity .16s cubic-bezier(.2,.8,.2,1), transform .16s cubic-bezier(.2,.8,.2,1);
+  }
+  body.downloads-open .dl-pop { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); }
+  .dl-head { display: flex; align-items: center; gap: 10px; padding: 10px 6px 12px 12px; }
+  .dl-head .t { flex: 1; font-size: 16px; font-weight: 600; }
+  .dl-x {
+    width: 30px; height: 30px; border-radius: 50%; flex: none;
+    display: flex; align-items: center; justify-content: center; color: var(--muted);
+    transition: background .12s ease, color .12s ease;
+  }
+  .dl-x:hover { background: var(--surface-h); color: var(--text); }
+  .dl-x svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+
+  .dl-list { max-height: 320px; overflow-y: auto; }
+  .dl-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 8px 10px 12px; border-radius: 12px;
+    transition: background .12s ease;
+  }
+  .dl-item:hover { background: var(--surface-h); }
+  .dl-fav { width: 32px; height: 32px; flex: none; position: relative; }
+  .dl-fav img { width: 32px; height: 32px; object-fit: contain; display: block; }
+  .dl-fav .generic { width: 32px; height: 32px; color: var(--muted); stroke: currentColor; fill: none; stroke-width: 1.6; }
+  /* Cercle de progression d'une ligne : survol -> croix d'annulation. */
+  .dl-prog { width: 32px; height: 32px; display: block; }
+  .dl-prog circle { fill: none; stroke-width: 2.4; }
+  .dl-prog .bg { stroke: var(--border); }
+  .dl-prog .fill {
+    stroke: var(--accent); stroke-linecap: round;
+    transform: rotate(-90deg); transform-origin: 50% 50%;
+    transition: stroke-dashoffset .25s cubic-bezier(.2,.8,.2,1);
+  }
+  body.dark .dl-prog .fill { stroke: #8ab4f8; }
+  .dl-cancel {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity .12s ease; color: var(--text);
+  }
+  .dl-cancel svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
+  .dl-fav.cancellable:hover .dl-prog { opacity: .25; }
+  .dl-fav.cancellable:hover .dl-cancel { opacity: 1; }
+
+  .dl-meta { flex: 1; min-width: 0; }
+  .dl-name {
+    font-size: 14px; font-weight: 600; line-height: 1.35;
+    overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    word-break: break-all;
+  }
+  .dl-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .dl-item.cancelled .dl-name { color: var(--muted); text-decoration: line-through; }
+  .dl-act {
+    width: 32px; height: 32px; border-radius: 50%; flex: none;
+    display: flex; align-items: center; justify-content: center; color: var(--muted);
+    transition: background .12s ease, color .12s ease, transform .22s cubic-bezier(.34,1.56,.64,1);
+  }
+  .dl-act:hover { background: rgba(128,128,128,.20); color: var(--text); }
+  .dl-act:active { transform: scale(.86); }
+  .dl-act.off { opacity: .3; pointer-events: none; }
+  .dl-act svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .dl-empty { padding: 22px 10px 26px; color: var(--muted); text-align: center; font-size: 13px; }
+  .dl-foot {
+    display: flex; align-items: center; gap: 10px;
+    margin-top: 4px; padding: 12px; border-radius: 12px;
+    border-top: 1px solid var(--border); font-size: 14px; font-weight: 600;
+    transition: background .12s ease;
+  }
+  .dl-foot:hover { background: var(--surface-h); }
+  .dl-foot .t { flex: 1; }
 
   /* ---------- Controle media ---------- */
   .media-pop {
@@ -581,6 +777,68 @@
   .media-toggle.on { background:#77d8e8; }
   .media-toggle.on::after { left:21px; }
   .media-empty { padding:22px 10px; color:var(--muted); text-align:center; }
+
+  /* ----- Onglets epingles (compacts, favicon seule) ----- */
+  .tab.pinned { max-width: 44px; min-width: 44px; padding: 0 0; justify-content: center; }
+  .tab.pinned .title { display: none; }
+  .tab.pinned .close { display: none; }
+  .tab.pinned .tab-fav { margin: 0; }
+
+  /* ----- Badge navigation privee sur l'onglet ----- */
+  .tab .inpriv { width: 13px; height: 13px; flex: none; margin-left: 2px; color: var(--muted); display: none; }
+  .tab.incognito .inpriv { display: block; }
+  .tab.incognito .tab-fav { opacity: .85; }
+
+  /* ----- Teinte "navigation privee" : un seul degrade continu sur toute la
+     hauteur du chrome (aucune coupure entre barre d'onglets / outils / favoris). */
+  body.incognito {
+    --text: #ece9f8; --muted: #b7b0d6; --border: #39344f;
+    --surface: #322c49; --surface-h: #3d3658; --active: #423a60;
+    background: linear-gradient(180deg, #2c2842 0%, #262138 52%, #1e1a30 100%);
+  }
+  body.incognito .tabstrip,
+  body.incognito .toolbar,
+  body.incognito .bookmarks-bar,
+  body.incognito .loadbar { background: transparent; }
+  body.incognito .tabstrip-sep { background: rgba(255,255,255,.12); }
+  .incognito-badge {
+    display: none; align-items: center; gap: 6px; height: 26px; padding: 0 10px;
+    margin: 0 0 4px 6px; border-radius: 13px; font-size: 11.5px; font-weight: 600;
+    color: #cdbcff; background: rgba(150,120,255,.16); border: 1px solid rgba(150,120,255,.3); flex: none;
+  }
+  body.incognito .incognito-badge { display: inline-flex; }
+  .incognito-badge svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+
+  /* ----- Overlay de recherche d'onglets (ouvert au clavier ⌘⇧A) ----- */
+  .tabsearch-pop {
+    position: absolute; top: 42px; left: 50%; transform: translate(-50%, -8px);
+    width: 460px; max-width: 82vw; background: var(--menu, var(--surface)); color: var(--text);
+    border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 16px 44px rgba(0,0,0,.32);
+    padding: 8px; z-index: 60; opacity: 0; pointer-events: none; transition: opacity .16s ease, transform .16s ease;
+  }
+  body.tabsearch-open .tabsearch-pop { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
+  .tabsearch-pop input {
+    width: 100%; border: none; outline: none; background: var(--surface); color: var(--text);
+    border-radius: 10px; padding: 9px 12px; font: inherit; font-size: 13.5px; margin-bottom: 6px;
+  }
+  .ts-list { max-height: 320px; overflow-y: auto; }
+  .ts-row { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 9px; cursor: default; }
+  .ts-row:hover, .ts-row.sel { background: var(--surface-h); }
+  .ts-row .favicon { width: 16px; height: 16px; border-radius: 4px; flex: none; position: relative; overflow: hidden; }
+  .ts-row .m { flex: 1; min-width: 0; }
+  .ts-row .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+  .ts-row .u { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--muted); }
+  .ts-empty { padding: 16px; text-align: center; color: var(--muted); font-size: 12.5px; }
+
+  /* ----- Toast (traduction, notifications legeres) ----- */
+  .toast {
+    position: absolute; top: 44px; left: 50%; transform: translate(-50%, -6px);
+    background: linear-gradient(135deg, #4898ff, #00d4ff); color: #fff;
+    padding: 8px 16px; border-radius: 20px; font-size: 12.5px; font-weight: 600;
+    box-shadow: 0 8px 24px rgba(72,152,255,.4); z-index: 70;
+    opacity: 0; pointer-events: none; transition: opacity .2s ease, transform .2s ease;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
 </style>
 </head>
 
@@ -588,7 +846,18 @@
   <div class="tabstrip">
     <div class="brand"><img id="brand-logo" src="zaalis://home/logo-zaalis.png" alt=""></div>
     <div class="tabs" id="tabs"></div>
-    <div class="newtab" id="newtab" title="Nouvel onglet">+</div>
+    <div class="tabstrip-sep"></div>
+    <div class="newtab" id="newtab" title="Nouvel onglet (⌘T)">+</div>
+    <div class="incognito-badge" id="incognito-badge" title="Navigation privée : cet onglet n'est pas enregistré">
+      <svg viewBox="0 0 24 24"><circle cx="7.5" cy="15" r="3"/><circle cx="16.5" cy="15" r="3"/><path d="M10.5 15h3"/><path d="M4 12l2-5h12l2 5"/></svg>
+      Privé
+    </div>
+    <div class="tabstrip-fill"></div>
+  </div>
+
+  <div class="tabsearch-pop" id="tabsearch-pop">
+    <input id="tabsearch-input" type="text" autocomplete="off" placeholder="Rechercher parmi vos onglets…">
+    <div class="ts-list" id="tabsearch-list"></div>
   </div>
 
   <div class="toolbar">
@@ -600,6 +869,9 @@
     <div class="lock" id="lock" title="Mode local securise actif : reseau coupe"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Local</div>
 
     <div class="address" id="address">
+      <div class="site-info-trigger" id="site-info-trigger" title="Informations sur le site">
+        <svg viewBox="0 0 24 24"><circle cx="7" cy="7" r="2.5"/><circle cx="7" cy="17" r="2.5"/><circle cx="17" cy="7" r="2.5"/><path d="M10 7h4.5M10 17h7M17 9.5V14"/></svg>
+      </div>
       <div class="search" id="go" title="Rechercher avec Google">
         <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
       </div>
@@ -607,6 +879,10 @@
     </div>
 
     <div class="iconbtn star" id="star" title="Ajouter aux favoris"><svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></div>
+    <div class="iconbtn dl-btn" id="downloads" title="Telechargements">
+      <svg class="dl-ring" viewBox="0 0 34 34"><circle class="bg" cx="17" cy="17" r="14.6"/><circle class="fill" cx="17" cy="17" r="14.6"/></svg>
+      <svg class="dl-arrow" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg>
+    </div>
     <div class="iconbtn" id="aichat" title="Chat IA — zaalis labs ide"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z"/><path d="M12 8.2l.9 2.4 2.4.9-2.4.9-.9 2.4-.9-2.4-2.4-.9 2.4-.9z"/></svg></div>
     <div class="iconbtn" id="media" title="Controle media"><svg viewBox="0 0 24 24"><path d="M4 5h10"/><path d="M4 12h7"/><path d="M4 19h4"/><circle cx="17" cy="17" r="3"/><path d="M17 14V4l4 1"/></svg></div>
     <div class="iconbtn" id="settings" title="Parametres"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
@@ -615,39 +891,48 @@
   <div class="loadbar" id="loadbar"><div class="loadbar-fill" id="loadbar-fill"></div></div>
 
   <div class="bookmarks-bar">
+    <div class="bookmark-folder-btn" id="bookmarks-btn" title="Favoris">
+      <svg viewBox="0 0 24 24"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H10l2 2.5h6.5A2.5 2.5 0 0 1 21 9v8.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/></svg>
+      <span>Favoris</span>
+      <span class="count" id="bookmarks-count">0</span>
+    </div>
     <div class="bookmarks" id="bookmarks"></div>
     <div class="launcher-btn" id="launcher-btn" title="Applications">
-      <span class="lb-sq lb-back"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><circle cx="18" cy="18" r="2.4"/></svg></span>
-      <span class="lb-sq lb-front"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.6"/><circle cx="18" cy="6" r="2.6"/><circle cx="6" cy="18" r="2.6"/><circle cx="18" cy="18" r="2.6"/><circle cx="12" cy="12" r="2.6"/></svg></span>
+      <span class="lb-sq lb-back"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="2.6"/><path d="M5 6v12c0 1.5 3.1 2.6 7 2.6s7-1.1 7-2.6V6"/><path d="M5 12c0 1.5 3.1 2.6 7 2.6s7-1.1 7-2.6"/></svg></span>
+      <span class="lb-sq lb-front"><svg viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><circle cx="8.5" cy="10" r="1.7"/><path d="M20 17l-5-5-8 6.5"/></svg></span>
     </div>
     <div class="profile-chip" id="profile-btn" title="Profil"></div>
   </div>
 
   <div class="profile-pop" id="profile-pop"></div>
 
+  <div class="bookmarks-pop" id="bookmarks-pop"><div class="bp-list" id="bookmarks-pop-list"></div></div>
+
   <div class="launcher-pop" id="launcher-pop"></div>
   <div class="lp-menu" id="lp-menu"></div>
-
-  <div class="lch-mask" id="lch-mask">
-    <div class="lch-modal" id="lch-modal">
-      <h3>Ajouter un raccourci</h3>
-      <input id="lch-name" type="text" placeholder="Nom" autocomplete="off">
-      <input id="lch-url" type="text" placeholder="URL" autocomplete="off">
-      <div class="lch-actions">
-        <button class="lch-btn" id="lch-cancel">Annuler</button>
-        <button class="lch-btn primary" id="lch-ok" disabled>OK</button>
-      </div>
-    </div>
-  </div>
 
   <div class="media-pop" id="media-pop">
     <div id="media-content"></div>
   </div>
 
+  <div class="dl-pop" id="dl-pop">
+    <div class="dl-head">
+      <div class="t">Historique des telechargements recents</div>
+      <div class="dl-x" id="dl-close" title="Fermer"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></div>
+    </div>
+    <div class="dl-list" id="dl-list"></div>
+    <div class="dl-foot" id="dl-full">
+      <div class="t">Historique complet des telechargements</div>
+      <div class="dl-act"><svg viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4l-8 8"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></div>
+    </div>
+  </div>
+
   <div class="omni-suggest" id="omni-suggest"></div>
+  <div class="site-info-pop" id="site-info-pop"></div>
+  <div class="toast" id="toast"></div>
 
 <script>
-  const wv = window.chrome && window.chrome.webview;
+  const wv = window.zaalisBridge;
   const SEP = "\x1f";
   function post(...parts){ if (wv) wv.postMessage(parts.join(SEP)); }
 
@@ -656,10 +941,96 @@
   let state = { theme:"light", searchEngine:"google", showBookmarks:true, tabs:[], active:{}, bookmarks:[] };
   let editing = false;
   let mediaOpen = false;
+  let bookmarksOpen = false;
   let mediaState = { available:false };
   let mediaPoll = 0;
+  let siteInfoOpen = false;
+  let siteInfoView = "summary";
+  let siteInfo = { available:false, cookies:[], permissions:[] };
 
   function isInternal(u){ return !u || u.indexOf("zaalis.home") !== -1 || u.indexOf("zaalis://") === 0 || u === "about:blank"; }
+  function isHome(u){ return u === "zaalis://home/index.html" || u === "zaalis://home/"; }
+
+  const SIP_LOCK = '<svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>';
+  const SIP_WARN = '<svg viewBox="0 0 24 24"><path d="M12 3 2.8 20h18.4L12 3z"/><path d="M12 9v5M12 17h.01"/></svg>';
+  const SIP_COOKIE = '<svg viewBox="0 0 24 24"><path d="M20.5 13.2A8.5 8.5 0 1 1 10.8 3.5a4.4 4.4 0 0 0 9.7 9.7z"/><circle cx="8.4" cy="11" r="1" fill="currentColor" stroke="none"/><circle cx="11.7" cy="16.2" r="1" fill="currentColor" stroke="none"/><circle cx="15.8" cy="11.1" r="1" fill="currentColor" stroke="none"/></svg>';
+  const SIP_GEAR = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
+
+  function positionSiteInfo(){
+    const r = addr.getBoundingClientRect();
+    const pop = $("site-info-pop");
+    pop.style.left = Math.max(12, Math.min(r.left, window.innerWidth - 412)) + "px";
+    pop.style.top = (r.bottom + 6) + "px";
+  }
+  function closeSiteInfo(){
+    siteInfoOpen = false;
+    document.body.classList.remove("site-info-open");
+    $("site-info-trigger").classList.remove("on");
+    reportHeight();
+  }
+  function setSiteInfoOpen(open){
+    if (open && isInternal(state.active.url || "")) return;
+    siteInfoOpen = !!open;
+    document.body.classList.toggle("site-info-open", siteInfoOpen);
+    $("site-info-trigger").classList.toggle("on", siteInfoOpen);
+    if (siteInfoOpen) {
+      siteInfoView = "summary";
+      siteInfo = { available:false, cookies:[], permissions:[] };
+      if (bookmarksOpen) setBookmarksOpen(false);
+      if (profileOpen) setProfileOpen(false);
+      if (mediaOpen) setMediaOpen(false);
+      if (dlOpen) setDownloadsOpen(false);
+      if (launcherOpen) setLauncherOpen(false);
+      positionSiteInfo(); renderSiteInfo(); post("getSiteInfo");
+    }
+    reportHeight();
+  }
+  function sipHeader(title, back){
+    return '<div class="sip-head">' + (back ? '<div class="sip-back" id="sip-back" title="Retour"><svg viewBox="0 0 24 24"><path d="M15 18 9 12l6-6"/></svg></div>' : '') +
+      '<div class="sip-host">' + escHtml(title || "Informations sur le site") + '</div><div class="sip-close" id="sip-close" title="Fermer"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></div></div>';
+  }
+  function sipRow(icon, title, subtitle, id){
+    return '<div class="sip-row"' + (id ? ' id="' + id + '"' : '') + '><div class="ic">' + icon + '</div><div class="copy"><div class="t">' + escHtml(title) + '</div><div class="s">' + escHtml(subtitle || "") + '</div></div>' + (id ? '<div class="chev">›</div>' : '') + '</div>';
+  }
+  function wireSiteInfoHeader(){
+    const close = $("sip-close"); if (close) close.onclick = closeSiteInfo;
+    const back = $("sip-back"); if (back) back.onclick = () => { siteInfoView = "summary"; renderSiteInfo(); reportHeight(); };
+  }
+  function renderSiteInfo(){
+    const pop = $("site-info-pop");
+    if (!siteInfoOpen) return;
+    const info = siteInfo || {};
+    const host = info.host || (() => { try { return new URL(state.active.url || "").hostname; } catch { return ""; } })();
+    if (siteInfoView === "cookies") {
+      const cookies = Array.isArray(info.cookies) ? info.cookies : [];
+      let html = sipHeader("Cookies et données des sites", true);
+      html += '<div class="sip-note">' + (cookies.length ? cookies.length + ' cookie' + (cookies.length > 1 ? 's sont enregistrés pour ce site.' : ' est enregistré pour ce site.') : 'Aucun cookie enregistré pour ce site.') + '</div>';
+      html += cookies.length ? '<div class="sip-cookie-list">' + cookies.map(c => '<div class="sip-cookie"><div class="n">' + escHtml(c.name || "(sans nom)") + '</div><div class="m">' + escHtml(c.domain + ' · ' + (c.session ? 'session' : 'persistant') + (c.secure ? ' · sécurisé' : '')) + '</div></div>').join("") + '</div>' : '<div class="sip-empty">Aucun cookie à afficher.</div>';
+      html += '<button class="sip-danger" id="sip-clear-data">Effacer les cookies et les données du site</button>';
+      pop.innerHTML = html; wireSiteInfoHeader();
+      $("sip-clear-data").onclick = () => { if (confirm("Effacer les cookies et les données de " + host + " ? Vous pourrez être déconnecté.")) post("clearSiteData"); };
+    } else if (siteInfoView === "settings") {
+      const permissions = Array.isArray(info.permissions) ? info.permissions : [];
+      let html = sipHeader("Paramètres du site", true);
+      html += '<div class="sip-note">Autorisations accordées ou bloquées pour <b>' + escHtml(host) + '</b>.</div>';
+      html += permissions.length ? '<div class="sip-cookie-list">' + permissions.map(p => '<div class="sip-cookie"><div class="n">' + escHtml(p.permission) + '</div><div class="m">' + (p.value === 'allow' ? 'Autorisé' : 'Bloqué') + '</div></div>').join("") + '</div>' : '<div class="sip-empty">Aucune autorisation spécifique pour ce site.</div>';
+      html += '<button class="sip-danger" id="sip-reset-perms">Réinitialiser les autorisations</button>';
+      pop.innerHTML = html; wireSiteInfoHeader();
+      $("sip-reset-perms").onclick = () => post("resetSitePermissions");
+    } else {
+      const cookieCount = Array.isArray(info.cookies) ? info.cookies.length : 0;
+      const secure = info.available ? !!info.secure : /^https:\/\//i.test(state.active.url || "");
+      let html = sipHeader(host || "Informations sur le site", false);
+      html += '<div class="sip-status' + (secure ? '' : ' warn') + '">' + (secure ? SIP_LOCK : SIP_WARN) + '<div><div class="t">' + (secure ? 'La connexion est sécurisée' : 'La connexion n’est pas sécurisée') + '</div><div class="s">' + (secure ? 'Les données sont chiffrées pendant leur transfert.' : 'Évitez de saisir des informations sensibles.') + '</div></div></div>';
+      html += sipRow(SIP_COOKIE, 'Cookies et données des sites', cookieCount ? cookieCount + ' cookie' + (cookieCount > 1 ? 's' : '') : 'Aucun cookie', 'sip-cookies');
+      html += '<div class="sip-divider"></div>';
+      html += sipRow(SIP_GEAR, 'Paramètres des sites', 'Autorisations et accès du site', 'sip-settings');
+      html += '<div class="sip-note">Les cookies restent séparés pour chaque profil' + (info.incognito ? ' et sont supprimés à la fermeture de la navigation privée.' : '.') + '</div>';
+      pop.innerHTML = html; wireSiteInfoHeader();
+      $("sip-cookies").onclick = () => { siteInfoView = "cookies"; renderSiteInfo(); reportHeight(); };
+      $("sip-settings").onclick = () => { siteInfoView = "settings"; renderSiteInfo(); reportHeight(); };
+    }
+  }
 
   // Le mode IA vit uniquement sur la barre centrale de l'accueil : la barre
   // d'adresse est une barre de navigation classique.
@@ -669,22 +1040,60 @@
   }
 
   function faviconUrl(u) {
-    try { return "https://www.google.com/s2/favicons?sz=64&domain=" + encodeURIComponent(new URL(u).hostname); }
+    try { return "https://www.google.com/s2/favicons?sz=64&format=png&domain=" + encodeURIComponent(new URL(u).hostname); }
     catch (e) { return ""; }
+  }
+  function faviconNode(className, url) {
+    const fav = document.createElement("div"); fav.className = className || "favicon";
+    const src = faviconUrl(url);
+    if (src && !isInternal(url)) {
+      const img = document.createElement("img"); img.alt = ""; img.decoding = "async";
+      img.onerror = () => { img.remove(); fav.classList.add("fallback"); };
+      img.src = src;
+      fav.appendChild(img);
+    } else {
+      fav.classList.add("fallback");
+    }
+    return fav;
+  }
+
+  // Le "+" suit le dernier onglet : quand un onglet s'ouvre ou se ferme, on le
+  // fait glisser depuis son ancienne position (FLIP) au lieu de le teleporter.
+  const plusGroup = () => [document.querySelector(".tabstrip-sep"), $("newtab")];
+  const plusLeft = () => $("newtab").getBoundingClientRect().left;
+  let plusReady = false;
+  function slidePlus(before){
+    if (!plusReady) { plusReady = true; return; }   // pas d'animation au 1er rendu
+    const delta = before - plusLeft();
+    if (!isFinite(delta) || Math.abs(delta) < 1) return;
+    plusGroup().forEach(el => el.animate(
+      [{ transform: `translateX(${delta}px)` }, { transform: "none" }],
+      { duration: 220, easing: "cubic-bezier(.2,.8,.2,1)" }
+    ));
   }
 
   function render(){
     document.body.classList.toggle("dark", state.theme === "dark");
+    document.body.classList.toggle("incognito", !!state.incognito);
     document.body.classList.toggle("hide-bookmarks", state.showBookmarks === false);
+    const homeContext = isHome(state.active.url || "");
+    document.body.classList.toggle("home-context", homeContext);
+    if (!homeContext) closeHomeContext();
+    const webSite = /^https?:\/\//i.test(state.active.url || "");
+    $("site-info-trigger").classList.toggle("show", webSite);
+    if (!webSite && siteInfoOpen) closeSiteInfo();
+    if (siteInfoOpen) { positionSiteInfo(); renderSiteInfo(); }
     updatePlaceholder();
 
     // Onglets
+    const plusBefore = plusLeft();
     tabsEl.innerHTML = "";
     state.tabs.forEach(t => {
       const el = document.createElement("div");
       const inSplit = Array.isArray(state.split) && state.split.indexOf(t.id) !== -1;
       const splitSide = inSplit ? (state.split[0] === t.id ? " split-l" : " split-r") : "";
-      el.className = "tab" + (t.active ? " active" : "") + (inSplit ? " split" + splitSide : "");
+      el.className = "tab" + (t.active ? " active" : "") + (inSplit ? " split" + splitSide : "")
+        + (t.pinned ? " pinned" : "") + (t.incognito ? " incognito" : "");
       el.dataset.id = t.id;
       el.addEventListener("contextmenu", (e) => {
         e.preventDefault(); e.stopPropagation();
@@ -703,25 +1112,18 @@
         el.addEventListener("pointermove", onMove);
         post("tabMenu", t.id);
       });
-      // En vue fractionnee, l'onglet se resume a sa favicon (groupe compact).
-      if (inSplit) {
-        const fav = document.createElement("div"); fav.className = "tab-fav";
-        const src = faviconUrl(t.url);
-        if (src && !isInternal(t.url)) {
-          const img = document.createElement("img"); img.alt = "";
-          img.onerror = () => { img.remove(); fav.classList.add("fallback"); };
-          img.src = src;
-          fav.appendChild(img);
-        } else {
-          fav.classList.add("fallback");
-        }
-        el.appendChild(fav);
-        el.title = t.title && t.title.trim() ? t.title : "Nouvel onglet";
-      }
+      el.appendChild(faviconNode("tab-fav", t.url));
+      el.title = t.title && t.title.trim() ? t.title : (t.incognito ? "Onglet privé" : "Nouvel onglet");
       const title = document.createElement("div");
       title.className = "title";
-      title.textContent = t.title && t.title.trim() ? t.title : "Nouvel onglet";
+      title.textContent = t.title && t.title.trim() ? t.title : (t.incognito ? "Onglet privé" : "Nouvel onglet");
       el.appendChild(title);
+      if (t.incognito) {
+        const priv = document.createElement("span");
+        priv.className = "inpriv";
+        priv.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="7.5" cy="15" r="3"/><circle cx="16.5" cy="15" r="3"/><path d="M10.5 15h3"/><path d="M4 12l2-5h12l2 5"/></svg>';
+        el.appendChild(priv);
+      }
       const close = document.createElement("div");
       close.className = "close"; close.textContent = "x";
       close.onclick = (e)=>{ e.stopPropagation(); post("closeTab", t.id); };
@@ -729,6 +1131,7 @@
       el.addEventListener("pointerdown", (e)=> startTabDrag(e, el, t.id));
       tabsEl.appendChild(el);
     });
+    slidePlus(plusBefore);
 
     // Barre d'adresse (sauf si l'utilisateur tape)
     if (!editing) {
@@ -756,45 +1159,56 @@
     $("aichat").classList.toggle("ai-on", !!state.aiPanelOpen && !aiOff);
     $("settings").classList.toggle("ai-on", !!state.panelOpen);
 
-    // Favoris
+    // Favoris : le bouton dossier reste seul sur la barre, le detail vit dans
+    // la mini-fenetre scrollable pour garder une largeur Chrome-like stable.
+    $("bookmarks-count").textContent = String(state.bookmarks.length || 0);
     const bm = $("bookmarks"); bm.innerHTML = "";
-    if (!state.bookmarks.length) {
-      const e = document.createElement("div"); e.className = "empty";
-      e.textContent = "Vos favoris apparaitront ici"; bm.appendChild(e);
-    } else {
-      state.bookmarks.forEach(b => {
-        const el = document.createElement("div"); el.className = "bm";
-        const fav = document.createElement("div"); fav.className = "favicon";
-        const src = faviconUrl(b.url);
-        if (src) {
-          const img = document.createElement("img"); img.alt = "";
-          img.onerror = () => { img.remove(); fav.classList.add("fallback"); };
-          img.src = src;
-          fav.appendChild(img);
-        } else {
-          fav.classList.add("fallback");
-        }
-        el.appendChild(fav);
-        const t = document.createElement("div"); t.className = "t";
-        t.textContent = b.title && b.title.trim() ? b.title : b.url; el.appendChild(t);
-        const x = document.createElement("div"); x.className = "x"; x.textContent = "x";
-        x.onclick = (e)=>{ e.stopPropagation(); post("removeBookmark", b.url); };
-        el.appendChild(x);
-        el.onclick = ()=> post("openBookmark", b.url);
-        el.title = b.url;
-        bm.appendChild(el);
-      });
-    }
+    if (bookmarksOpen) renderBookmarksPop();
 
     // Profil : rond de la barre de favoris + popup s'il est ouvert.
     renderProfileChip();
     if (profileOpen && !profileEditingName && !profileCreating) renderProfilePop();
-    if (typeof launcherOpen !== "undefined" && launcherOpen) renderLauncher();
+    if (typeof launcherOpen !== "undefined" && launcherOpen && !launcherAdding) renderLauncher();
 
     // Barre de progression : demarre/arrete au changement d'etat de chargement.
     const loading = !!state.active.loading;
     if (loading !== wasLoading) { wasLoading = loading; setLoadingBar(loading); }
 
+    reportHeight();
+  }
+
+  function renderBookmarksPop(){
+    const list = $("bookmarks-pop-list");
+    list.innerHTML = "";
+    const items = Array.isArray(state.bookmarks) ? state.bookmarks : [];
+    if (!items.length) {
+      const empty = document.createElement("div");
+      empty.className = "bp-empty";
+      empty.textContent = "Vos favoris apparaitront ici";
+      list.appendChild(empty);
+      return;
+    }
+    items.forEach(b => {
+      const row = document.createElement("div"); row.className = "bp-row"; row.title = b.url;
+      row.appendChild(faviconNode("favicon", b.url));
+      const title = document.createElement("div"); title.className = "t";
+      title.textContent = b.title && b.title.trim() ? b.title : b.url;
+      row.appendChild(title);
+      row.onclick = () => { post("openBookmark", b.url); setBookmarksOpen(false); };
+      list.appendChild(row);
+    });
+  }
+
+  function setBookmarksOpen(open){
+    bookmarksOpen = !!open && isHome(state.active.url || "");
+    document.body.classList.toggle("bookmarks-open", bookmarksOpen);
+    if (bookmarksOpen) {
+      if (profileOpen) setProfileOpen(false);
+      if (mediaOpen) setMediaOpen(false);
+      if (typeof dlOpen !== "undefined" && dlOpen) setDownloadsOpen(false);
+      if (typeof launcherOpen !== "undefined" && launcherOpen) setLauncherOpen(false);
+      renderBookmarksPop();
+    }
     reportHeight();
   }
 
@@ -882,7 +1296,9 @@
     document.body.classList.toggle("media-open", mediaOpen);
     $("media").classList.toggle("active", mediaOpen);
     if (mediaOpen) {
+      if (bookmarksOpen) setBookmarksOpen(false);
       if (profileOpen) setProfileOpen(false);
+      if (typeof dlOpen !== "undefined" && dlOpen) setDownloadsOpen(false);
       if (typeof launcherOpen !== "undefined" && launcherOpen) setLauncherOpen(false);
       post("getMediaState");
       renderMedia();
@@ -893,6 +1309,188 @@
     }
     reportHeight();
   }
+
+  // ----- Telechargements (facon Google) -----
+  // Le bouton apparait au premier telechargement, affiche l'anneau de
+  // progression, et la bulle s'ouvre toute seule quand un fichier demarre.
+  let downloads = [];
+  let dlOpen = false;
+  const dlSeen = new Set();          // ids deja affiches -> detecte les nouveaux
+  const dlPrevState = new Map();     // id -> etat precedent (pour l'animation de fin)
+  let dlDoneTimer = 0;
+
+  const RING_C = 2 * Math.PI * 14.6;   // anneau du bouton (r=14.6)
+  const PROG_C = 2 * Math.PI * 13.8;   // cercle d'une ligne (r=13.8)
+
+  function fmtSize(bytes){
+    const b = Number(bytes) || 0;
+    if (b < 1024) return b + " o";
+    const u = ["Ko","Mo","Go","To"];
+    let v = b / 1024, i = 0;
+    while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+    return (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10).toString().replace(".", ",") + " " + u[i];
+  }
+
+  function fmtAgo(ts){
+    const s = Math.max(0, Math.round((Date.now() - (Number(ts) || 0)) / 1000));
+    if (s < 60) return "A l'instant";
+    const m = Math.round(s / 60);
+    if (m < 60) return "Il y a " + m + " minute" + (m > 1 ? "s" : "");
+    const h = Math.round(m / 60);
+    if (h < 24) return "Il y a " + h + " heure" + (h > 1 ? "s" : "");
+    const j = Math.round(h / 24);
+    return "Il y a " + j + " jour" + (j > 1 ? "s" : "");
+  }
+
+  function dlSub(d){
+    if (d.state === "progressing") {
+      return d.total ? fmtSize(d.received) + " sur " + fmtSize(d.total)
+                     : fmtSize(d.received) + " telecharges";
+    }
+    if (d.state === "cancelled")   return "Telechargement annule";
+    if (d.state === "interrupted") return "Telechargement interrompu";
+    return fmtSize(d.total || d.received) + " • " + fmtAgo(d.startedAt);
+  }
+
+  function svgEl(tag, attrs){
+    const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const k in attrs) el.setAttribute(k, attrs[k]);
+    return el;
+  }
+
+  // Vignette de gauche : cercle de progression (annulable au survol) pendant le
+  // telechargement, icone systeme du fichier une fois termine.
+  function dlThumb(d){
+    const fav = document.createElement("div");
+    fav.className = "dl-fav";
+    if (d.state === "progressing") {
+      fav.classList.add("cancellable");
+      fav.title = "Annuler le telechargement";
+      const pct = d.total ? Math.max(0, Math.min(1, d.received / d.total)) : 0;
+      const svg = svgEl("svg", { class: "dl-prog", viewBox: "0 0 32 32" });
+      svg.appendChild(svgEl("circle", { class: "bg", cx: 16, cy: 16, r: 13.8 }));
+      const fill = svgEl("circle", { class: "fill", cx: 16, cy: 16, r: 13.8 });
+      fill.setAttribute("stroke-dasharray", PROG_C);
+      // Sans taille connue, on montre un anneau au quart : progression inconnue.
+      fill.setAttribute("stroke-dashoffset", d.total ? PROG_C * (1 - pct) : PROG_C * 0.75);
+      svg.appendChild(fill);
+      fav.appendChild(svg);
+      const x = document.createElement("div");
+      x.className = "dl-cancel";
+      x.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+      fav.appendChild(x);
+      fav.onclick = (e) => { e.stopPropagation(); post("cancelDownload", d.id); };
+      return fav;
+    }
+    if (d.icon) {
+      const img = document.createElement("img");
+      img.alt = ""; img.src = d.icon;
+      fav.appendChild(img);
+    } else {
+      fav.innerHTML = '<svg class="generic" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>';
+    }
+    return fav;
+  }
+
+  function dlAction(title, svg, enabled, fn){
+    const b = document.createElement("div");
+    b.className = "dl-act" + (enabled ? "" : " off");
+    b.title = title;
+    b.innerHTML = svg;
+    if (enabled) b.onclick = (e) => { e.stopPropagation(); fn(); };
+    return b;
+  }
+
+  const ICON_FOLDER = '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+  const ICON_OPEN   = '<svg viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4l-8 8"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>';
+
+  function renderDownloadsList(){
+    const list = $("dl-list");
+    list.innerHTML = "";
+    if (!downloads.length) {
+      const e = document.createElement("div");
+      e.className = "dl-empty";
+      e.textContent = "Aucun telechargement recent.";
+      list.appendChild(e);
+      return;
+    }
+    downloads.forEach(d => {
+      const row = document.createElement("div");
+      row.className = "dl-item" + (d.state === "cancelled" || d.state === "interrupted" ? " cancelled" : "");
+      row.title = d.path || d.url || "";
+      row.appendChild(dlThumb(d));
+
+      const meta = document.createElement("div");
+      meta.className = "dl-meta";
+      const n = document.createElement("div"); n.className = "dl-name"; n.textContent = d.name;
+      const s = document.createElement("div"); s.className = "dl-sub";  s.textContent = dlSub(d);
+      meta.appendChild(n); meta.appendChild(s);
+      row.appendChild(meta);
+
+      const done = d.state === "completed";
+      // La "loupe" facon Finder : revele le fichier dans le gestionnaire.
+      row.appendChild(dlAction("Afficher dans le Finder", ICON_FOLDER, done, () => post("showDownload", d.id)));
+      row.appendChild(dlAction("Ouvrir le fichier",       ICON_OPEN,   done, () => post("openDownload", d.id)));
+      if (done) row.ondblclick = () => post("openDownload", d.id);
+      list.appendChild(row);
+    });
+  }
+
+  function renderDownloads(){
+    document.body.classList.toggle("has-downloads", downloads.length > 0);
+
+    const busy = downloads.find(d => d.state === "progressing") || null;
+    const btn  = $("downloads");
+    btn.classList.toggle("busy", !!busy);
+    if (busy) {
+      const pct = busy.total ? Math.max(0, Math.min(1, busy.received / busy.total)) : 0;
+      const fill = btn.querySelector(".dl-ring .fill");
+      fill.setAttribute("stroke-dasharray", RING_C);
+      fill.setAttribute("stroke-dashoffset", busy.total ? RING_C * (1 - pct) : RING_C * 0.75);
+      btn.title = "Telechargement en cours — " + dlSub(busy);
+    } else {
+      btn.title = "Telechargements";
+    }
+
+    // Un fichier vient d'arriver : petite pulsation sur la fleche.
+    let justDone = false;
+    downloads.forEach(d => {
+      if (dlPrevState.get(d.id) === "progressing" && d.state === "completed") justDone = true;
+      dlPrevState.set(d.id, d.state);
+    });
+    if (justDone) {
+      btn.classList.remove("done");
+      void btn.offsetWidth;                       // relance l'animation
+      btn.classList.add("done");
+      clearTimeout(dlDoneTimer);
+      dlDoneTimer = setTimeout(() => btn.classList.remove("done"), 500);
+    }
+
+    // Nouveau telechargement -> la bulle s'ouvre, comme Chrome.
+    const fresh = downloads.some(d => d.state === "progressing" && !dlSeen.has(d.id));
+    downloads.forEach(d => dlSeen.add(d.id));
+    if (fresh && !dlOpen)       setDownloadsOpen(true);
+    else if (!downloads.length) setDownloadsOpen(false);
+    else { if (dlOpen) renderDownloadsList(); reportHeight(); }
+  }
+
+  function setDownloadsOpen(open){
+    dlOpen = open && downloads.length > 0;
+    document.body.classList.toggle("downloads-open", dlOpen);
+    $("downloads").classList.toggle("active", dlOpen);
+    if (dlOpen) {
+      if (bookmarksOpen) setBookmarksOpen(false);
+      if (mediaOpen) setMediaOpen(false);
+      if (profileOpen) setProfileOpen(false);
+      if (typeof launcherOpen !== "undefined" && launcherOpen) setLauncherOpen(false);
+      renderDownloadsList();
+    }
+    reportHeight();
+  }
+
+  $("downloads").onclick  = () => setDownloadsOpen(!dlOpen);
+  $("dl-close").onclick   = () => setDownloadsOpen(false);
+  $("dl-full").onclick    = () => { setDownloadsOpen(false); post("openDownloadsPanel"); };
 
   // ----- Profils (facon Google, mais 100% local) -----
   const PROFILE_COLORS = ["#4898ff","#00c4a7","#f5b400","#e8710a","#d93025","#a142f4","#24c1e0","#5f6368"];
@@ -1087,7 +1685,9 @@
     if (!open) { profileEditingName = false; profileCreating = false; }
     document.body.classList.toggle("profile-open", profileOpen);
     if (profileOpen) {
+      if (bookmarksOpen) setBookmarksOpen(false);
       if (mediaOpen) setMediaOpen(false);
+      if (dlOpen) setDownloadsOpen(false);
       if (launcherOpen) setLauncherOpen(false);
       renderProfilePop();
     }
@@ -1098,17 +1698,32 @@
 
   // Clic hors du popup -> fermeture (profil, media, lanceur, suggestions).
   document.addEventListener("pointerdown", (e) => {
+    if (bookmarksOpen && !e.target.closest("#bookmarks-pop, #bookmarks-btn")) setBookmarksOpen(false);
     if (profileOpen && !e.target.closest("#profile-pop, #profile-btn")) setProfileOpen(false);
     if (mediaOpen && !e.target.closest("#media-pop, #media")) setMediaOpen(false);
+    if (dlOpen && !e.target.closest("#dl-pop, #downloads")) setDownloadsOpen(false);
     if (suggestOpen && !e.target.closest("#omni-suggest, #address")) closeSuggest();
+    if (siteInfoOpen && !e.target.closest("#site-info-pop, #site-info-trigger")) closeSiteInfo();
     if (lpMenuOpen && !e.target.closest("#lp-menu")) closeLpMenu();
     if (launcherOpen && !e.target.closest("#launcher-pop, #launcher-btn, #lp-menu")) setLauncherOpen(false);
   });
 
   // ----- Lanceur d'applications (facon Google) -----
-  let launcherOpen = false, lpMenuOpen = false;
+  let launcherOpen = false, lpMenuOpen = false, launcherEditing = false, launcherAdding = false;
   const launcherPop = $("launcher-pop");
   const lpMenu = $("lp-menu");
+
+  // Ferme les menus exclusifs à l'accueil avant le changement de page afin
+  // qu'aucun popup ne reste visible au-dessus d'un site externe.
+  function closeHomeContext(){
+    bookmarksOpen = false;
+    profileOpen = false;
+    launcherOpen = false;
+    launcherEditing = false;
+    launcherAdding = false;
+    lpMenuOpen = false;
+    document.body.classList.remove("bookmarks-open", "profile-open", "launcher-open", "lp-menu-open");
+  }
 
   function launcherState(){
     return {
@@ -1117,17 +1732,25 @@
       apps: Array.isArray(state.launcherApps) ? state.launcherApps : [],
     };
   }
+  // Icone d'une tuile : essaie l'icone dediee (item.icon, ex. Google gstatic),
+  // puis la favicon du domaine, puis un fond degrade en dernier recours.
+  function lpTileIcon(ic, fb, item){
+    const srcs = [];
+    if (item.icon) srcs.push(item.icon);
+    const fav = faviconUrl(item.url); if (fav) srcs.push(fav);
+    if (!srcs.length) { fb.classList.add("show"); return; }
+    const img = document.createElement("img"); img.alt = "";
+    let i = 0;
+    img.onerror = () => { i++; if (i < srcs.length) img.src = srcs[i]; else { img.remove(); fb.classList.add("show"); } };
+    img.src = srcs[0];
+    ic.appendChild(img);
+  }
   function lpFaviconTile(item, removable){
     const tile = document.createElement("div");
     tile.className = "lp-tile"; tile.title = item.url;
     const ic = document.createElement("div"); ic.className = "lp-ic";
     const fb = document.createElement("div"); fb.className = "fallback"; ic.appendChild(fb);
-    const src = faviconUrl(item.url);
-    if (src) {
-      const img = document.createElement("img"); img.alt = "";
-      img.onerror = () => { img.remove(); fb.classList.add("show"); };
-      img.src = src; ic.appendChild(img);
-    } else { fb.classList.add("show"); }
+    lpTileIcon(ic, fb, item);
     tile.appendChild(ic);
     const label = document.createElement("div"); label.className = "lp-label";
     let name = item.title && item.title.trim() ? item.title : "";
@@ -1147,16 +1770,22 @@
   function renderLauncher(){
     const ls = launcherState();
     launcherPop.innerHTML = "";
-    document.body.classList.toggle("launcher-edit", launcherEditing);
+    document.body.classList.toggle("launcher-edit", launcherEditing && !launcherAdding);
 
     const head = document.createElement("div"); head.className = "lp-head";
-    const title = document.createElement("div"); title.className = "lp-title"; title.textContent = "Applications";
+    const title = document.createElement("div"); title.className = "lp-title";
+    title.textContent = "Applications";
     head.appendChild(title);
-    const edit = document.createElement("div"); edit.className = "lp-edit"; edit.title = "Choisir un mode";
-    edit.innerHTML = '<svg viewBox="0 0 24 24"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg>';
-    edit.onclick = () => { launcherEditing = !launcherEditing; renderLauncher(); setTimeout(reportHeight, 230); };
-    head.appendChild(edit);
+    if (!launcherAdding) {
+      const edit = document.createElement("div"); edit.className = "lp-edit"; edit.title = "Choisir un mode";
+      edit.innerHTML = '<svg viewBox="0 0 24 24"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg>';
+      edit.onclick = () => { launcherEditing = !launcherEditing; renderLauncher(); setTimeout(reportHeight, 230); };
+      head.appendChild(edit);
+    }
     launcherPop.appendChild(head);
+
+    // Mini-formulaire d'ajout INTEGRE (remplace la grille, aucun masque plein ecran).
+    if (launcherAdding) { launcherPop.appendChild(buildAddForm()); return; }
 
     const modes = document.createElement("div"); modes.className = "lp-modes";
     [["travail","Travail"],["creatif","Créatif"]].forEach(([m, lbl]) => {
@@ -1175,7 +1804,7 @@
       ls.apps.forEach(it => grid.appendChild(lpFaviconTile(it, true)));
       const add = document.createElement("div"); add.className = "lp-tile lp-add"; add.title = "Ajouter un raccourci";
       add.innerHTML = '<div class="lp-ic"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div><div class="lp-label">Ajouter</div>';
-      add.onclick = () => openLchModal();
+      add.onclick = () => enterAdd();
       grid.appendChild(add);
       if (!ls.apps.length) {
         const hint = document.createElement("div"); hint.className = "lp-empty";
@@ -1185,14 +1814,41 @@
     }
     launcherPop.appendChild(grid);
   }
-  let launcherEditing = false;
+
+  // Mini-fenetre d'ajout construite dans le popup (garde le focus : render() ne
+  // reconstruit pas le popup tant que launcherAdding est vrai).
+  function buildAddForm(){
+    const wrap = document.createElement("div"); wrap.className = "lp-addform";
+    const t = document.createElement("div"); t.className = "lp-af-title"; t.textContent = "Ajouter un raccourci";
+    const nom = document.createElement("input"); nom.type = "text"; nom.placeholder = "Nom"; nom.autocomplete = "off";
+    const url = document.createElement("input"); url.type = "text"; url.placeholder = "URL"; url.autocomplete = "off";
+    const actions = document.createElement("div"); actions.className = "lp-af-actions";
+    const cancel = document.createElement("button"); cancel.className = "lp-af-btn"; cancel.textContent = "Annuler";
+    const ok = document.createElement("button"); ok.className = "lp-af-btn primary"; ok.textContent = "OK"; ok.disabled = true;
+    const submit = () => { const u = url.value.trim(); if (!u) return; post("launcherAdd", u, nom.value.trim()); exitAdd(); };
+    url.addEventListener("input", () => { ok.disabled = !url.value.trim(); });
+    ok.onclick = submit; cancel.onclick = () => exitAdd();
+    [nom, url].forEach(el => el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); submit(); }
+      else if (e.key === "Escape") { e.preventDefault(); exitAdd(); }
+    }));
+    wrap.appendChild(t); wrap.appendChild(nom); wrap.appendChild(url);
+    actions.appendChild(cancel); actions.appendChild(ok); wrap.appendChild(actions);
+    setTimeout(() => nom.focus(), 30);
+    return wrap;
+  }
+  function enterAdd(){ launcherAdding = true; launcherEditing = false; renderLauncher(); setTimeout(reportHeight, 60); }
+  function exitAdd(){ launcherAdding = false; renderLauncher(); setTimeout(reportHeight, 60); }
+
   function setLauncherOpen(open){
     launcherOpen = open;
-    if (!open) { launcherEditing = false; closeLpMenu(); }
+    if (!open) { launcherEditing = false; launcherAdding = false; closeLpMenu(); }
     document.body.classList.toggle("launcher-open", launcherOpen);
     if (launcherOpen) {
+      if (bookmarksOpen) setBookmarksOpen(false);
       if (profileOpen) setProfileOpen(false);
       if (mediaOpen) setMediaOpen(false);
+      if (dlOpen) setDownloadsOpen(false);
       renderLauncher();
     }
     reportHeight();
@@ -1211,29 +1867,6 @@
     lpMenuOpen = true; document.body.classList.add("lp-menu-open");
   }
   function closeLpMenu(){ if (!lpMenuOpen) return; lpMenuOpen = false; document.body.classList.remove("lp-menu-open"); }
-
-  // Modale d'ajout (mode creatif).
-  const lchMask = $("lch-mask"), lchName = $("lch-name"), lchUrl = $("lch-url"), lchOk = $("lch-ok"), lchCancel = $("lch-cancel");
-  function openLchModal(){
-    lchName.value = ""; lchUrl.value = ""; lchOk.disabled = true;
-    document.body.classList.add("lch-modal-open");
-    setTimeout(() => lchName.focus(), 30);
-  }
-  function closeLchModal(){ document.body.classList.remove("lch-modal-open"); }
-  function submitLchModal(){
-    const url = lchUrl.value.trim();
-    if (!url) return;
-    post("launcherAdd", url, lchName.value.trim());
-    closeLchModal();
-  }
-  lchUrl.addEventListener("input", () => { lchOk.disabled = !lchUrl.value.trim(); });
-  lchOk.onclick = submitLchModal;
-  lchCancel.onclick = closeLchModal;
-  lchMask.addEventListener("pointerdown", (e) => { if (e.target === lchMask) closeLchModal(); });
-  [lchName, lchUrl].forEach(el => el.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); submitLchModal(); }
-    else if (e.key === "Escape") { e.preventDefault(); closeLchModal(); }
-  }));
 
   // ----- Reordonnancement des onglets au pointeur (facon Chrome) -----
   // L'onglet attrape suit le curseur (net, pas de fantome) ; les autres
@@ -1328,8 +1961,12 @@
     const d = e.data;
     if (!d) return;
     if (d.type === "state") { state = d; if (!drag) render(); }
+    else if (d.type === "siteInfo") { siteInfo = d.info || { available:false, cookies:[], permissions:[] }; if (siteInfoOpen) { renderSiteInfo(); reportHeight(); } }
     else if (d.type === "suggest") onSuggest(d);
     else if (d.type === "focusOmni") { omni.focus(); omni.select(); }
+    else if (d.type === "openTabSearch") openTabSearch();
+    else if (d.type === "toast") showToast(d.text);
+    else if (d.type === "downloads") { downloads = Array.isArray(d.items) ? d.items : []; renderDownloads(); }
     else if (d.type === "mediaState") {
       if (d.available) {
         if (!mediaState.available ||
@@ -1350,8 +1987,62 @@
     post("toggleMaximize");
   });
 
+  // ----- Recherche d'onglets (⌘⇧A) ---------------------------------------
+  let tsSel = 0, tsItems = [];
+  function openTabSearch(){
+    document.body.classList.add("tabsearch-open");
+    const inp = $("tabsearch-input"); inp.value = ""; tsSel = 0;
+    renderTabSearch(""); inp.focus();
+  }
+  function closeTabSearch(){ document.body.classList.remove("tabsearch-open"); }
+  function renderTabSearch(q){
+    q = (q||"").trim().toLowerCase();
+    const list = $("tabsearch-list"); list.innerHTML = "";
+    tsItems = (state.tabs||[]).filter(t => {
+      const s = ((t.title||"") + " " + (t.url||"")).toLowerCase();
+      return !q || s.indexOf(q) !== -1;
+    });
+    if (!tsItems.length){ list.innerHTML = '<div class="ts-empty">Aucun onglet ne correspond.</div>'; return; }
+    if (tsSel >= tsItems.length) tsSel = tsItems.length - 1;
+    if (tsSel < 0) tsSel = 0;
+    tsItems.forEach((t, i) => {
+      const row = document.createElement("div");
+      row.className = "ts-row" + (i === tsSel ? " sel" : "");
+      row.appendChild(faviconNode("favicon", t.url));
+      const m = document.createElement("div"); m.className = "m";
+      const tt = document.createElement("div"); tt.className = "t";
+      tt.textContent = t.title && t.title.trim() ? t.title : (t.incognito ? "Onglet privé" : "Nouvel onglet");
+      const uu = document.createElement("div"); uu.className = "u";
+      uu.textContent = isInternal(t.url) ? "Page zaalis" : (t.url || "");
+      m.appendChild(tt); m.appendChild(uu); row.appendChild(m);
+      row.onclick = () => { post("selectTab", t.id); closeTabSearch(); };
+      list.appendChild(row);
+    });
+  }
+  let toastTimer = null;
+  function showToast(text){
+    const el = $("toast"); if (!el) return;
+    el.textContent = text || ""; el.classList.add("show");
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
+  }
+
+  // La recherche d'onglets s'ouvre au clavier (⌘⇧A) — plus de bouton dans la barre.
+  $("tabsearch-input").addEventListener("input", e => { tsSel = 0; renderTabSearch(e.target.value); });
+  $("tabsearch-input").addEventListener("keydown", e => {
+    if (e.key === "Escape") closeTabSearch();
+    else if (e.key === "ArrowDown"){ e.preventDefault(); tsSel++; renderTabSearch($("tabsearch-input").value); }
+    else if (e.key === "ArrowUp"){ e.preventDefault(); tsSel--; renderTabSearch($("tabsearch-input").value); }
+    else if (e.key === "Enter"){ e.preventDefault(); const it = tsItems[tsSel]; if (it){ post("selectTab", it.id); closeTabSearch(); } }
+  });
+  document.addEventListener("mousedown", e => {
+    if (document.body.classList.contains("tabsearch-open") && !e.target.closest("#tabsearch-pop")) closeTabSearch();
+  });
+
   // Actions
   $("newtab").onclick = ()=> post("newTab");
+  $("site-info-trigger").onclick = () => setSiteInfoOpen(!siteInfoOpen);
+  $("bookmarks-btn").onclick = ()=> setBookmarksOpen(!bookmarksOpen);
   $("back").onclick = ()=> post("back");
   $("forward").onclick = ()=> post("forward");
   $("reload").onclick = ()=> post("reload");
@@ -1464,13 +2155,19 @@
 
   // Hauteur de la chrome -> communiquee au natif pour positionner le contenu
   function reportHeight(){
-    const base = 40 + 52 + 3 + (state.showBookmarks === false ? 0 : 36);
+    const bookmarksHeight = parseInt(getComputedStyle(document.documentElement)
+      .getPropertyValue("--bookmarks-bar-height"), 10) || 60;
+    // La barre Favoris / applications / profil est réservée à l'accueil.
+    const base = 40 + 52 + 3 + (isHome(state.active.url || "") ? bookmarksHeight : 0);
     // Superpositions ouvertes qui debordent sous la chrome : la hauteur de la
     // chrome est etendue pour englober leur boite (union des rectangles).
     const pops = [];
+    if (bookmarksOpen) pops.push($("bookmarks-pop"));
     if (mediaOpen) pops.push($("media-pop"));
+    else if (dlOpen) pops.push($("dl-pop"));
     else if (profileOpen) pops.push($("profile-pop"));
     else if (typeof launcherOpen !== "undefined" && launcherOpen) pops.push($("launcher-pop"));
+    if (siteInfoOpen) pops.push($("site-info-pop"));
     if (typeof suggestOpen !== "undefined" && suggestOpen && $("omni-suggest").children.length) pops.push($("omni-suggest"));
     if (pops.length) {
       let L = Infinity, T = Infinity, R = -Infinity, B = -Infinity;
@@ -1489,7 +2186,7 @@
   render();
   post("ready");
   reportHeight();
-  window.addEventListener("resize", () => { if (suggestOpen) positionSuggest(); reportHeight(); });
+  window.addEventListener("resize", () => { if (suggestOpen) positionSuggest(); if (siteInfoOpen) positionSiteInfo(); reportHeight(); });
 </script>
 </body>
 </html>

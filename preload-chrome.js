@@ -1,8 +1,7 @@
-// Shim window.chrome.webview pour chrome.html et panel.html.
-// contextIsolation est désactivé pour ces pages internes que l'on contrôle,
-// afin d'installer directement l'objet dans le monde principal.
+// Pont window.zaalisBridge pour les pages internes. Même ces pages restent
+// isolées : aucune API Node/Electron ne fuit dans le monde de la page.
 
-const { ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
 const listeners = new Set();
 
@@ -24,6 +23,4 @@ const webview = {
   },
 };
 
-if (!window.chrome) window.chrome = {};
-try { Object.defineProperty(window.chrome, 'webview', { value: webview, configurable: true, writable: false }); }
-catch { window.chrome.webview = webview; }
+contextBridge.exposeInMainWorld('zaalisBridge', webview);

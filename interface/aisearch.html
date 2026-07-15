@@ -169,7 +169,7 @@
   </div>
 
 <script>
-  const wv = window.chrome && window.chrome.webview;
+  const wv = window.zaalisBridge;
   const SEP = "\x1f";
   const post = (...p) => { if (wv) wv.postMessage(p.join(SEP)); };
   const $ = id => document.getElementById(id);
@@ -184,8 +184,12 @@
   }
 
   function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return u; } }
-  function faviconUrl(u) { try { return "https://www.google.com/s2/favicons?sz=64&domain=" + encodeURIComponent(new URL(u).hostname); } catch (e) { return ""; } }
+  function faviconUrl(u) { try { return "https://www.google.com/s2/favicons?sz=64&format=png&domain=" + encodeURIComponent(new URL(u).hostname); } catch (e) { return ""; } }
   function esc(s) { return String(s).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
+  function safeHttpUrl(raw) {
+    try { const u = new URL(String(raw || "")); return (u.protocol === "https:" || u.protocol === "http:") ? u.href : ""; }
+    catch (e) { return ""; }
+  }
 
   function runSearch(q) {
     if (!q) return;
@@ -233,7 +237,9 @@
     // Réponse tardive d'une recherche précédente : on l'ignore.
     if (d.query && currentQuery() && d.query !== currentQuery()) return;
     if (d.model) $("model-badge").textContent = d.model;
-    const results = Array.isArray(d.results) ? d.results : [];
+    const results = Array.isArray(d.results)
+      ? d.results.map(r => Object.assign({}, r, { url: safeHttpUrl(r && r.url) })).filter(r => r.url)
+      : [];
 
     // Mise a jour douce si les sources de cette requete sont deja affichees.
     if (renderedQuery === q && document.querySelector(".results") && updateOverviewOnly(d)) return;
