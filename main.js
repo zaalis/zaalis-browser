@@ -110,6 +110,7 @@ const AI_PROVIDERS = {
   gemini: { label: 'Gemini (Google)',    submodels: ['gemini-3.5-flash','gemini-3.1-pro-preview','gemini-3.1-flash-lite','gemini-3-flash-preview','gemini-2.5-pro','gemini-2.5-flash','gemini-2.5-flash-lite'] },
   grok:   { label: 'Grok (xAI)',         submodels: ['grok-4.5','grok-4.3','grok-4.20-multi-agent-0309','grok-4.20-0309-reasoning','grok-4.20-0309-non-reasoning','grok-build-0.1','grok-imagine-image-quality','grok-imagine-image'] },
   mistral:{ label: 'Mistral',            submodels: ['mistral-medium-3-5','mistral-small-latest','mistral-large-latest','ministral-14b-2512','ministral-8b-2512','ministral-3b-2512','codestral-latest'] },
+  kimi:   { label: 'Kimi (Moonshot AI)', submodels: ['kimi-k3','kimi-k2.7-code','kimi-k2.7-code-highspeed','kimi-k2.6'] },
   local:  { label: 'Local (Ollama)',     submodels: ['qwen3:8b','llama3.2','gemma3:4b','deepseek-r1:8b','qwen2.5-coder:7b'] },
   gguf:   { label: 'GGUF (llama.cpp)',   submodels: [] },
 };
@@ -129,6 +130,8 @@ const AI_MODEL_LABELS = {
   'mistral-medium-3-5': 'Mistral Medium 3.5', 'mistral-small-latest': 'Mistral Small 4',
   'mistral-large-latest': 'Mistral Large 3', 'ministral-14b-2512': 'Ministral 3 14B',
   'ministral-8b-2512': 'Ministral 3 8B', 'ministral-3b-2512': 'Ministral 3 3B', 'codestral-latest': 'Codestral 25.08',
+  'kimi-k3': 'Kimi K3', 'kimi-k2.7-code': 'Kimi K2.7 Code',
+  'kimi-k2.7-code-highspeed': 'Kimi K2.7 Code HighSpeed', 'kimi-k2.6': 'Kimi K2.6',
 };
 // Modèles locaux vivants récupérés du serveur IDE (Ollama installés + .gguf
 // présents). Remplacent les valeurs par défaut ci-dessus dès qu'ils sont connus.
