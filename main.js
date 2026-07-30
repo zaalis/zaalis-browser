@@ -17,7 +17,7 @@
 
 const {
   app, BaseWindow, WebContentsView, ipcMain, Menu, shell,
-  protocol, net, session, nativeImage, dialog, systemPreferences
+  protocol, net, session, nativeImage, dialog
 } = require('electron');
 const path = require('path');
 const fs   = require('fs');
@@ -63,12 +63,13 @@ let panelOpen = false;
 let pendingPanelHistory = false;
 let pendingPanelDownloads = false;
 let panelLoaded = false;
-let panelProgress = 0;      // 0 = fermé, 1 = ouvert
-let panelAnimFrom = 0;
-let panelAnimTo   = 0;
-let panelAnimStart = 0;
-let panelAnimTimer = null;
+let panelHideTimer = null;
+let panelPreloadTimer = null;
+let panelViewVisible = false;
+let panelBoundsKey = '';
+let panelBoundsUpdates = 0;
 const PANEL_ANIM_MS = 190;
+const PANEL_PRELOAD_DELAY_MS = 900;
 
 const settings = {
   theme:          'light',
@@ -619,7 +620,7 @@ function resolveQuery(q) {
 // libelle et la synthese. Aucune cle secrete n'est embarquee : la synthese est
 // construite localement a partir des extraits des sources.
 
-const AI_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
+const AI_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
               '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
 function httpGet(urlStr, headers) {
@@ -1095,9 +1096,10 @@ function layoutAll() {
 
   const bodyTop = contentTop;
   const bodyHeight = Math.max(0, h - bodyTop);
-  // Le chat IA est un panneau ancré : la page garde sa place à gauche, comme
-  // le panneau Claude, au lieu d'être simplement recouverte par le chat.
-  const aiReservedWidth = Math.round(AI_PANEL_WIDTH * aiPanelProgress);
+  // Le chat IA est un panneau ancré : sa largeur est réservée à droite
+  // dès son ouverture. Ainsi, les pages (et les vues fractionnées) se
+  // redimensionnent au lieu de rester cachées sous le panneau qui glisse.
+  const aiReservedWidth = aiPanelOpen ? Math.min(AI_PANEL_WIDTH, w) : 0;
   const bodyWidth = Math.max(0, w - aiReservedWidth);
 
   // Vue fractionnee : si l'onglet actif fait partie de la paire, les deux
@@ -1126,39 +1128,34 @@ function layoutAll() {
     }
   }
 
-  if (panelView) {
-    if (panelProgress > 0) {
-      // Aligné sur kPanelTopDip = 94 comme le natif Windows.
-      const panelTop = 94;
-      // On garde la panelView à sa taille fixe et on ne translate que via x
-      // pour éviter tout reflow interne pendant l'animation.
-      const off = Math.round(PANEL_WIDTH * (1 - panelProgress));
-      panelView.setBounds({
-        x: Math.max(0, w - PANEL_WIDTH + off),
-        y: panelTop,
-        width: PANEL_WIDTH,
-        height: Math.max(0, h - panelTop),
-      });
-      panelView.setVisible(true);
-    } else {
-      panelView.setVisible(false);
-    }
-  }
+  layoutPanel();
 
-  // Panneau chat IA : meme mecanique de glissement que le panneau parametres.
-  if (aiPanelView) {
-    if (aiPanelProgress > 0) {
-      const panelTop = 94;
-      aiPanelView.setBounds({
-        x: Math.max(0, bodyWidth),
-        y: panelTop,
-        width: AI_PANEL_WIDTH,
-        height: Math.max(0, h - panelTop),
-      });
-      aiPanelView.setVisible(true);
-    } else {
-      aiPanelView.setVisible(false);
-    }
+  layoutAiPanel();
+}
+
+// Le panneau de réglages est une surcouche : son animation ne doit jamais
+// relancer le layout ni le repaint des onglets web situés derrière.
+function layoutPanel() {
+  if (!mainWin || !panelView) return;
+  if (!panelOpen && !panelViewVisible) return;
+
+  const [w, h] = mainWin.getContentSize();
+  const panelTop = 94;
+  const bounds = {
+    x: Math.max(0, w - PANEL_WIDTH),
+    y: panelTop,
+    width: PANEL_WIDTH,
+    height: Math.max(0, h - panelTop),
+  };
+  const key = `${bounds.x}:${bounds.y}:${bounds.width}:${bounds.height}`;
+  if (key !== panelBoundsKey) {
+    panelView.setBounds(bounds);
+    panelBoundsKey = key;
+    panelBoundsUpdates++;
+  }
+  if (panelOpen && !panelViewVisible) {
+    panelView.setVisible(true);
+    panelViewVisible = true;
   }
 }
 
@@ -1760,11 +1757,21 @@ function createTab(rawUrl, activate, opts) {
 
   // Capture des messages console de la page (tampon circulaire) pour que
   // l'assistant IA puisse les inspecter, comme l'extension Claude dans Chrome.
-  wc.on('console-message', (_e, level, message, line, sourceId) => {
+  wc.on('console-message', (event, ...legacyArgs) => {
     try {
+      const [legacyLevel, legacyMessage, legacyLine, legacySourceId] = legacyArgs;
+      const level = event.level ?? legacyLevel;
+      const message = event.message ?? legacyMessage;
+      const line = event.lineNumber ?? legacyLine;
+      const sourceId = event.sourceId ?? legacySourceId;
       const lv = ['log', 'info', 'warn', 'error'][level] || 'log';
       const src = sourceId ? String(sourceId).split('/').pop() : '';
-      tab.consoleBuf.push({ level: lv, message: String(message).slice(0, 600), source: src, line });
+      tab.consoleBuf.push({
+        level: lv,
+        message: String(message).slice(0, 600),
+        source: src,
+        line
+      });
       if (tab.consoleBuf.length > 200) tab.consoleBuf.shift();
     } catch {}
   });
@@ -2145,6 +2152,7 @@ function rebuildTabsForProfile() {
     createTab('', true);
   }
   layoutAll();
+  preloadPanelView();
 }
 
 function toggleBookmark() {
@@ -2273,28 +2281,38 @@ function ensurePanelView() {
   panelView.webContents.loadURL(PANEL_URL);
 }
 
-// easeInOutCubic, comme le natif.
-function easeInOut(t) { return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2, 3) / 2; }
-
-function stepPanelAnim() {
-  const now = Date.now();
-  const dt  = Math.max(0, now - panelAnimStart);
-  const p   = Math.min(1, dt / PANEL_ANIM_MS);
-  panelProgress = panelAnimFrom + (panelAnimTo - panelAnimFrom) * easeInOut(p);
-  layoutAll();
-  if (p >= 1) {
-    panelProgress = panelAnimTo;
-    if (panelAnimTimer) { clearInterval(panelAnimTimer); panelAnimTimer = null; }
-    layoutAll();
-  }
+function preloadPanelView() {
+  if (panelPreloadTimer || panelView) return;
+  panelPreloadTimer = setTimeout(() => {
+    panelPreloadTimer = null;
+    if (mainWin && !panelView) ensurePanelView();
+  }, PANEL_PRELOAD_DELAY_MS);
+  panelPreloadTimer.unref?.();
 }
 
-function animatePanelTo(target) {
-  panelAnimFrom = panelProgress;
-  panelAnimTo   = target;
-  panelAnimStart = Date.now();
-  if (panelAnimTimer) clearInterval(panelAnimTimer);
-  panelAnimTimer = setInterval(stepPanelAnim, 16);
+// Courbe symétrique, assez souple pour garder le glissement naturel sans
+// ralentir sous le seuil d'un pixel par image à la toute fin.
+function sendPanelVisibility(open) {
+  if (!panelView || !panelLoaded) return;
+  try { panelView.webContents.send('zaalis:message', { type: 'panelVisibility', open: !!open }); } catch {}
+}
+
+function showPanelAnimated() {
+  if (panelHideTimer) { clearTimeout(panelHideTimer); panelHideTimer = null; }
+  layoutPanel();
+  sendPanelVisibility(true);
+}
+
+function hidePanelAnimated() {
+  sendPanelVisibility(false);
+  if (panelHideTimer) clearTimeout(panelHideTimer);
+  panelHideTimer = setTimeout(() => {
+    panelHideTimer = null;
+    if (!panelOpen && panelView && panelViewVisible) {
+      panelView.setVisible(false);
+      panelViewVisible = false;
+    }
+  }, PANEL_ANIM_MS + 40);
 }
 
 function togglePanel() {
@@ -2303,9 +2321,9 @@ function togglePanel() {
   if (panelOpen) {
     closeAiPanel();                 // un seul panneau lateral a la fois
     mainWin.contentView.addChildView(panelView);
-    animatePanelTo(1);
+    showPanelAnimated();
   } else {
-    animatePanelTo(0);
+    hidePanelAnimated();
   }
   pushPanelState();
   pushState();
@@ -2318,10 +2336,11 @@ function openPanel() {
 function closePanel() {
   if (!panelOpen) return;
   panelOpen = false;
-  animatePanelTo(0);
+  hidePanelAnimated();
   pushState();
 }
 
+// Courbe conservee pour l'animation native du panneau de chat IA.
 // ----- Panneau chat IA (zaalis labs ide) -------------------------------------
 // Panneau lateral droit independant du panneau parametres : chat complet avec
 // le modele choisi, conversations persistees dans aichats.json.
@@ -2329,8 +2348,10 @@ function closePanel() {
 const AI_PANEL_WIDTH = 380;
 let aiPanelView = null;
 let aiPanelOpen = false;
-let aiPanelProgress = 0;
-let aiPanelAnimFrom = 0, aiPanelAnimTo = 0, aiPanelAnimStart = 0, aiPanelAnimTimer = null;
+let aiPanelLoaded = false;
+let aiPanelVisible = false;
+let aiPanelHideTimer = null;
+let aiPanelBoundsKey = '';
 
 let aiChats = [];            // [{ id, title, createdAt, updatedAt, messages: [{role, content}] }]
 let aiCurrentChatId = null;
@@ -2426,30 +2447,55 @@ function ensureAiPanelView() {
   aiPanelView.setBackgroundColor('#00000000');
   lockInternalView(aiPanelView.webContents, 'zaalis://home/aichat.html');
   aiPanelView.webContents.on('did-finish-load', () => {
+    aiPanelLoaded = true;
     pushAiPanelState();
     pushAiChatList();
     pushAiChatMessages();
+    sendAiPanelVisibility(aiPanelOpen);
   });
   aiPanelView.webContents.loadURL('zaalis://home/aichat.html');
 }
 
-function stepAiPanelAnim() {
-  const p = Math.min(1, Math.max(0, (Date.now() - aiPanelAnimStart) / PANEL_ANIM_MS));
-  aiPanelProgress = aiPanelAnimFrom + (aiPanelAnimTo - aiPanelAnimFrom) * easeInOut(p);
-  layoutAll();
-  if (p >= 1) {
-    aiPanelProgress = aiPanelAnimTo;
-    if (aiPanelAnimTimer) { clearInterval(aiPanelAnimTimer); aiPanelAnimTimer = null; }
-    layoutAll();
+function layoutAiPanel() {
+  if (!mainWin || !aiPanelView) return;
+  if (!aiPanelOpen && !aiPanelVisible) return;
+  const [w, h] = mainWin.getContentSize();
+  const bounds = {
+    x: Math.max(0, w - AI_PANEL_WIDTH), y: 94,
+    width: AI_PANEL_WIDTH, height: Math.max(0, h - 94),
+  };
+  const key = `${bounds.x}:${bounds.y}:${bounds.width}:${bounds.height}`;
+  if (key !== aiPanelBoundsKey) {
+    aiPanelView.setBounds(bounds);
+    aiPanelBoundsKey = key;
+  }
+  if (aiPanelOpen && !aiPanelVisible) {
+    aiPanelView.setVisible(true);
+    aiPanelVisible = true;
   }
 }
 
-function animateAiPanelTo(target) {
-  aiPanelAnimFrom = aiPanelProgress;
-  aiPanelAnimTo   = target;
-  aiPanelAnimStart = Date.now();
-  if (aiPanelAnimTimer) clearInterval(aiPanelAnimTimer);
-  aiPanelAnimTimer = setInterval(stepAiPanelAnim, 16);
+function sendAiPanelVisibility(open) {
+  if (!aiPanelView || !aiPanelLoaded) return;
+  try { aiPanelView.webContents.send('zaalis:message', { type: 'aiPanelVisibility', open: !!open }); } catch {}
+}
+
+function showAiPanelAnimated() {
+  if (aiPanelHideTimer) { clearTimeout(aiPanelHideTimer); aiPanelHideTimer = null; }
+  layoutAiPanel();
+  sendAiPanelVisibility(true);
+}
+
+function hideAiPanelAnimated() {
+  sendAiPanelVisibility(false);
+  if (aiPanelHideTimer) clearTimeout(aiPanelHideTimer);
+  aiPanelHideTimer = setTimeout(() => {
+    aiPanelHideTimer = null;
+    if (!aiPanelOpen && aiPanelView && aiPanelVisible) {
+      aiPanelView.setVisible(false);
+      aiPanelVisible = false;
+    }
+  }, PANEL_ANIM_MS + 40);
 }
 
 function openAiPanel() {
@@ -2457,8 +2503,9 @@ function openAiPanel() {
   if (aiPanelOpen) return;
   closePanel();                     // un seul panneau lateral a la fois
   aiPanelOpen = true;
+  layoutAll();                      // reserve la place de la page pendant l'ouverture
   mainWin.contentView.addChildView(aiPanelView);
-  animateAiPanelTo(1);
+  showAiPanelAnimated();
   pushAiPanelState();
   pushAiChatList();
   pushAiChatMessages();
@@ -2468,7 +2515,8 @@ function openAiPanel() {
 function closeAiPanel() {
   if (!aiPanelOpen) return;
   aiPanelOpen = false;
-  animateAiPanelTo(0);
+  layoutAll();                      // rend toute sa largeur à la page pendant la fermeture
+  hideAiPanelAnimated();
   pushState();
 }
 
@@ -3207,7 +3255,8 @@ async function voiceStart(sender) {
     return;
   }
   // macOS : déclenche la demande d'accès micro système au nom de l'app.
-  try { if (process.platform === 'darwin') await systemPreferences.askForMediaAccess('microphone'); } catch {}
+  // Windows requests microphone access through its privacy settings; the
+  // Electron permission handler below receives the actual media request.
   let st = null;
   try { st = (await ideProbe('/api/voice-status', 4000, true)).body; } catch {}
   if (!st || !st.stt || !st.stt.ready) {
@@ -3241,7 +3290,8 @@ async function voiceTurn(sender, audioB64) {
       voiceSend({ type: 'voiceState', phase: m.includes('model-downloading') ? 'preparing' : 'error',
                   message: m.includes('model-downloading') ? 'Le modèle vocal se télécharge, un instant…'
                          : m.includes('speech-denied') ? 'Autorisez la reconnaissance vocale pour zaalis labs IDE dans les réglages macOS.'
-                         : m.includes('stt-unavailable') ? 'Mettez à jour zaalis labs IDE pour activer la reconnaissance vocale.'
+                         : m.includes('windows-speech-language-unavailable') ? 'Installez la reconnaissance vocale française dans les paramètres de langue de Windows.'
+                         : m.includes('stt-unavailable') ? 'La reconnaissance vocale n’est pas disponible sur ce PC.'
                          : ('Transcription impossible : ' + m) });
       return;
     }
@@ -3560,7 +3610,10 @@ function handleAction(a, args, event) {
     case 'toggleAiPanel':  toggleAiPanel(); break;
     case 'closeAiPanel':   closeAiPanel(); break;
     case 'askAiPage':      askAiAboutPage(); break;
-    case 'aiPanelReady':   pushAiPanelState(); pushAiChatList(); pushAiChatMessages(); break;
+    case 'aiPanelReady':
+      aiPanelLoaded = true;
+      pushAiPanelState(); pushAiChatList(); pushAiChatMessages(); sendAiPanelVisibility(aiPanelOpen);
+      break;
     case 'aiChatSend':     aiChatSend(args.join(SEP)); break;
     case 'aiChatNew':      newAiChat(); pushAiChatList(); pushAiChatMessages(); break;
     case 'aiChatSelect':   if (aiChatById(arg(0))) { aiCurrentChatId = arg(0); pushAiChatList(); pushAiChatMessages(); } break;
@@ -3617,6 +3670,7 @@ function handleAction(a, args, event) {
     case 'panelReady':
       panelLoaded = true;
       pushPanelState(); pushDownloads();
+      sendPanelVisibility(panelOpen);
       if (pendingPanelHistory) { sendPanelHistory(); pendingPanelHistory = false; }
       if (pendingPanelDownloads) { pendingPanelDownloads = false; showPanelDownloads(); }
       break;
@@ -3812,7 +3866,7 @@ function startApi() {
 // ----- Fenêtre principale ---------------------------------------------------
 
 function createWindow() {
-  const iconPath = path.join(__dirname, 'assets', 'logo-zaalis.png');
+  const iconPath = path.join(__dirname, 'assets', 'zaalis.ico');
   const icon = fs.existsSync(iconPath) ? nativeImage.createFromPath(iconPath) : undefined;
 
   mainWin = new BaseWindow({
@@ -3823,8 +3877,12 @@ function createWindow() {
     show: false,
     backgroundColor: settings.theme === 'dark' ? '#202124' : '#e9eaed',
     icon,
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 12, y: 12 },
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: settings.theme === 'dark' ? '#202124' : '#e9eaed',
+      symbolColor: settings.theme === 'dark' ? '#e8eaed' : '#3c4043',
+      height: 38,
+    },
   });
 
   chromeView = new WebContentsView({
@@ -3842,7 +3900,7 @@ function createWindow() {
   chromeView.webContents.on('did-finish-load', () => {
     // Décale la brand à droite pour ne pas passer sous les traffic lights macOS.
     chromeView.webContents.insertCSS(`
-      .tabstrip { padding-left: 82px !important; }
+      .tabstrip { padding-right: 150px !important; }
       .brand    { padding-left: 0 !important; }
     `);
     pushState();
@@ -3868,6 +3926,12 @@ function createWindow() {
 // ----- App lifecycle --------------------------------------------------------
 
 app.setName('zaalis browser');
+app.setAppUserModelId('com.zaalis.browser');
+
+// Chromium utilise déjà l'accélération matérielle par défaut ; ce réglage
+// privilégie explicitement la rasterisation GPU pour les surfaces Chromium et
+// les animations compositées, sans désactiver ses garde-fous de compatibilité.
+app.commandLine.appendSwitch('enable-gpu-rasterization');
 
 // Autorise la lecture continue demandée par l'utilisateur (notamment le
 // passage automatique au titre suivant des playlists YouTube). Sans ce réglage
@@ -3909,8 +3973,6 @@ app.whenReady().then(() => {
   registerProtocol();  // enregistre aussi téléchargements + permissions (invité)
   createWindow();
   startApi();
-  ensureDesktopAlias();
-
   // Menu macOS minimal (rôles standard) + raccourcis.
   const template = [
     { role: 'appMenu' },
@@ -3944,7 +4006,7 @@ app.whenReady().then(() => {
       { label: 'Historique',               accelerator: 'CmdOrCtrl+Y',       click: () => openHistoryPanel() },
       { label: 'Téléchargements',          accelerator: 'CmdOrCtrl+Shift+J', click: () => { openPanel(); showPanelDownloads(); } },
       { type: 'separator' },
-      { label: 'Outils de développement',  accelerator: 'Alt+Cmd+I',         click: () => { const t = activeTab(); if (t) { const w = t.view.webContents; w.isDevToolsOpened() ? w.closeDevTools() : w.openDevTools({ mode: 'detach' }); } } },
+      { label: 'Outils de développement',  accelerator: 'Ctrl+Shift+I',      click: () => { const t = activeTab(); if (t) { const w = t.view.webContents; w.isDevToolsOpened() ? w.closeDevTools() : w.openDevTools({ mode: 'detach' }); } } },
     ]},
     { label: 'Affichage', submenu: [
       { label: 'Zoom avant',    accelerator: 'CmdOrCtrl+Plus',  click: () => setZoomPct((settings.zoomPct || 100) + 10) },
@@ -4054,6 +4116,25 @@ async function runAgentSelfTest(mode) {
   await sleepMs(300);
   const stale = await runAgentTool(t, 'click', { ref: btnRef });
   check('refs invalidés après rechargement', String(stale).includes('référence inconnue'), stale);
+
+  // 8) The settings panel uses one fixed native layout; only its CSS layer
+  // moves. This avoids text repaint jitter on Windows and keeps the rounded
+  // left edge stable throughout the transition.
+  ensurePanelView();
+  const boundsBeforePanel = panelBoundsUpdates;
+  openPanel();
+  await sleepMs(PANEL_ANIM_MS + 160);
+  const panelVisual = await panelView.webContents.executeJavaScript(`({
+    open: document.body.classList.contains('panel-visible'),
+    transform: getComputedStyle(document.body).transform,
+    radius: parseFloat(getComputedStyle(document.body).borderTopLeftRadius) || 0
+  })`, true);
+  check('settings panel: opening completed', panelVisual.open && panelVisual.transform === 'matrix(1, 0, 0, 1, 0, 0)', JSON.stringify(panelVisual));
+  check('settings panel: rounded left corners', panelVisual.radius === 10, JSON.stringify(panelVisual));
+  closePanel();
+  await sleepMs(PANEL_ANIM_MS + 100);
+  check('settings panel: closing completed', panelViewVisible === false);
+  check('settings panel: no frame-by-frame native movement', panelBoundsUpdates - boundsBeforePanel <= 1, String(panelBoundsUpdates - boundsBeforePanel));
 
   if (mode === 'mistral') {
     settings.aiProvider = 'mistral';

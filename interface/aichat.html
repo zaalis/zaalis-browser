@@ -15,12 +15,17 @@
   }
   * { box-sizing:border-box; }
   html,body { margin:0; height:100%; overflow:hidden; }
+  html { background:transparent; }
   body {
     font-family:"Segoe UI",Arial,sans-serif; background:var(--menu); color:var(--text);
     display:flex; flex-direction:column; user-select:none; -webkit-user-select:none;
-    border-left:1px solid var(--border); border-top-left-radius:16px; overflow:hidden;
-    position:relative;
+    border-left:1px solid var(--border); border-radius:12px 0 0 12px; overflow:hidden;
+    position:relative; transform:translate3d(100%,0,0); transform-origin:right center;
+    transition:transform 190ms cubic-bezier(.22,.61,.36,1);
+    will-change:transform; backface-visibility:hidden; contain:paint;
   }
+  body.ai-panel-visible { transform:translate3d(0,0,0); }
+  @media (prefers-reduced-motion: reduce) { body { transition-duration:1ms; } }
 
   /* ----- En-tete ----- */
   .head {
@@ -51,7 +56,7 @@
   }
   .msg { max-width:86%; padding:9px 13px; border-radius:16px; font-size:13.5px;
          line-height:1.5; white-space:pre-wrap; word-wrap:break-word;
-         user-select:text; -webkit-user-select:text;
+         user-select:text; -webkit-user-select:text; will-change:transform,opacity;
          animation:pop .22s cubic-bezier(.2,.8,.2,1) both; }
   @keyframes pop { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
   .msg.still { animation:none; }
@@ -102,7 +107,7 @@
   .batch-title { font-size:12.5px; font-weight:650; color:var(--text); white-space:nowrap; }
   .batch-count { flex:1; font-size:11.5px; color:var(--muted); }
   .batch-count .num { display:inline-block; font-variant-numeric:tabular-nums; font-weight:700;
-    color:var(--text); will-change:transform; }
+    color:var(--text); will-change:transform,opacity; }
   .batch-chev { color:var(--muted); flex:none; display:flex; transition:transform .22s cubic-bezier(.2,.8,.2,1); }
   .batch-chev svg { width:16px; height:16px; }
   .batch.open .batch-chev { transform:rotate(180deg); }
@@ -110,7 +115,7 @@
   .batch.open .batch-body { display:flex; }
   .batch-row {
     display:flex; align-items:center; gap:9px; padding:6px 7px; border-radius:8px;
-    font-size:12.5px; animation:pop .18s ease both;
+    font-size:12.5px; animation:pop .18s ease both; will-change:transform,opacity;
   }
   .batch-row .chk { width:15px; height:15px; flex:none; color:#22a565; display:flex; }
   .batch-row .chk svg { width:15px; height:15px; stroke:currentColor; stroke-width:2.5; }
@@ -241,6 +246,23 @@
   const post = (...p) => { if (wv) wv.postMessage(p.join(SEP)); };
   const $ = id => document.getElementById(id);
   const chatEl = $("chat"), input = $("input"), sendBtn = $("send");
+  let panelVisibilityFrame = 0;
+
+  function setPanelVisibility(open) {
+    if (panelVisibilityFrame) cancelAnimationFrame(panelVisibilityFrame);
+    if (!open) {
+      document.body.classList.remove("ai-panel-visible");
+      panelVisibilityFrame = 0;
+      return;
+    }
+    document.body.classList.remove("ai-panel-visible");
+    panelVisibilityFrame = requestAnimationFrame(() => {
+      panelVisibilityFrame = requestAnimationFrame(() => {
+        document.body.classList.add("ai-panel-visible");
+        panelVisibilityFrame = 0;
+      });
+    });
+  }
 
   let busy = false;
   let currentId = null;
@@ -281,20 +303,15 @@
     if (!numEl) return;
     const from = parseInt(numEl.textContent, 10) || 0;
     if (from === to) { numEl.textContent = String(to); return; }
-    const start = performance.now(), dur = 300;
     numEl.style.transition = "none";
     numEl.style.transform = "translateY(-5px)";
     numEl.style.opacity = ".45";
+    numEl.textContent = String(to);
     requestAnimationFrame(() => {
       numEl.style.transition = "transform .26s cubic-bezier(.2,.8,.2,1), opacity .26s ease";
       numEl.style.transform = "translateY(0)";
       numEl.style.opacity = "1";
     });
-    (function tick(now) {
-      const p = Math.min(1, (now - start) / dur);
-      numEl.textContent = String(Math.round(from + (to - from) * p));
-      if (p < 1) requestAnimationFrame(tick);
-    })(start);
   }
 
   // Met à jour l'en-tête (titre + compteur + unité) selon le nombre d'actions.
@@ -490,6 +507,7 @@
       setBatchHead(b, body.childElementCount, true);
       if (atBottom || b.classList.contains("open")) chatEl.scrollTop = chatEl.scrollHeight;
     }
+    else if (d.type === "aiPanelVisibility") setPanelVisibility(!!d.open);
   });
 
   post("aiPanelReady");

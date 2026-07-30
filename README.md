@@ -1,65 +1,37 @@
-# zaalis Browser for macOS
+# zaalis Browser for Windows
 
-The browser that extends **zaalis labs ide** to the Web.
+zaalis Browser is the Windows edition of the zaalis web workspace. It is an
+Electron application powered by Chromium WebView, with a native Windows
+installer and persistent local data in `%APPDATA%\\zaalis Browser`.
 
-zaalis Browser turns browsing into a workspace. It combines a fast macOS
-experience, isolated personal spaces, precise privacy controls, and contextual
-assistance connected to zaalis labs ide. The result is less friction between
-research, reading, organization, and action.
+## Included features
 
-## Built for modern work
-
-The interface stays familiar while bringing the tools that matter every day:
-tabs stay in sync, recently published pages are refreshed cleanly, and zaalis
-labs ide assistance is available directly in the browser whenever it is
-available locally.
-
-## Features
-
-- Persistent tabs, bookmarks, history, and shortcuts
-- Split view for comparing two pages side by side
-- Independent profiles with separate cookies, permissions, bookmarks, and history
-- Private browsing with a temporary session
-- Cache-bypassing refresh and revalidation of background tabs
-- Per-site information panel for connections, cookies, data, and permissions
-- HTTPS, permission controls, and protection against unsafe websites
-- Search, voice search, and navigation suggestions
-- Contextual assistance, AI search, and guided page interaction through zaalis
-  labs ide
-- Downloads, media controls, and pinned web applications
-- Modern macOS interface for Apple Silicon and Intel Macs
-
-## Installation
-
-Download the file for your Mac from the releases page:
-
-- `zaalisBrowser-*-arm64.dmg` — Apple Silicon Macs (M1, M2, M3, M4…)
-- `zaalisBrowser-*-x64.dmg` — Intel Macs
-
-Open the DMG, then drag **zaalis browser** into the **Applications** folder.
-
-> Development builds may not be signed by Apple. macOS may request confirmation
-> the first time the application is opened.
+- Tabs, bookmarks, history, profiles and private browsing
+- Split view, downloads, media controls and pinned web applications
+- Per-site privacy and permission controls
+- Search, voice search and contextual zaalis labs IDE assistance
+- Windows 10 and Windows 11 title-bar integration and shortcuts
 
 ## Development
 
-```bash
+```powershell
 npm install
 npm start
+npm test
+npm run selftest
 ```
 
-To build the macOS disk images:
+## Build installers
 
-```bash
-npm run pack:all
+```powershell
+.\scripts\build-win.ps1
 ```
+
+The generated x64 Windows NSIS installer is `dist/zaalisBrowser-<version>-setup.exe`.
+It lets the user select an installation directory and creates Start menu and
+desktop shortcuts.
 
 ## License and trademark
 
-The source code is released under the [GNU AGPLv3](LICENSE). Any modified or
-redistributed version must retain this license and make its source code
-available under the terms of the AGPLv3.
-
-The **zaalis** name, logos, and visual identity are not licensed under the
-AGPLv3. They may not be used to present a derivative product as official or
-endorsed by zaalis.
+The source code is released under the [GNU AGPLv3](LICENSE). The **zaalis**
+name, logos and visual identity remain reserved to zaalis.

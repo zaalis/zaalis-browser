@@ -251,22 +251,22 @@
         @keyframes voice-pop { from { opacity: 0; transform: scale(.94); } to { opacity: 1; transform: none; } }
 
         @keyframes mistDriftA {
-            0%   { transform: translate3d(0,0,0) rotate(0deg); }
-            25%  { transform: translate3d(3%, -2%, 0) rotate(2deg); }
-            50%  { transform: translate3d(-2%, 3%, 0) rotate(-1.5deg); }
-            75%  { transform: translate3d(-3%, -1%, 0) rotate(1deg); }
-            100% { transform: translate3d(0,0,0) rotate(0deg); }
+            0%   { transform: translate3d(-2%, 1%, 0) rotate(-.6deg) scale(1.01); }
+            25%  { transform: translate3d(2%, -1.5%, 0) rotate(.7deg) scale(1.02); }
+            50%  { transform: translate3d(3%, 1.5%, 0) rotate(.2deg) scale(1.01); }
+            75%  { transform: translate3d(-1%, 2.5%, 0) rotate(-.5deg) scale(1.02); }
+            100% { transform: translate3d(-2%, 1%, 0) rotate(-.6deg) scale(1.01); }
         }
         @keyframes mistDriftB {
-            0%   { transform: translate3d(0,0,0) rotate(0deg); }
-            33%  { transform: translate3d(-3%, 2%, 0) rotate(-2deg); }
-            66%  { transform: translate3d(2%, -3%, 0) rotate(1.5deg); }
-            100% { transform: translate3d(0,0,0) rotate(0deg); }
+            0%   { transform: translate3d(2%, -2%, 0) rotate(.5deg) scale(1.01); }
+            33%  { transform: translate3d(-2.5%, 1%, 0) rotate(-.6deg) scale(1.02); }
+            66%  { transform: translate3d(-1%, -2.5%, 0) rotate(.4deg) scale(1.01); }
+            100% { transform: translate3d(2%, -2%, 0) rotate(.5deg) scale(1.01); }
         }
         @keyframes mistSwirl {
-            0%   { transform: translate3d(0,0,0) rotate(0deg) scale(1); }
-            50%  { transform: translate3d(1.5%, -2%, 0) rotate(-3deg) scale(1.03); }
-            100% { transform: translate3d(0,0,0) rotate(0deg) scale(1); }
+            0%   { transform: translate3d(-1%, -1%, 0) rotate(-1deg) scale(1.02); }
+            50%  { transform: translate3d(1.5%, 2%, 0) rotate(1deg) scale(1.04); }
+            100% { transform: translate3d(-1%, -1%, 0) rotate(-1deg) scale(1.02); }
         }
         @keyframes tintDrift {
             0%, 100% { transform: translate3d(0,0,0); }
@@ -284,9 +284,9 @@
             will-change: transform;
         }
         .orb-stage .mist-wrap, .orb-stage .layer { position: absolute; inset: 0; }
-        .orb-stage .m1 { position: absolute; width: 150%; height: 150%; left: -25%; top: -25%; animation: mistDriftA 26s ease-in-out infinite; will-change: transform; }
-        .orb-stage .m2 { position: absolute; width: 135%; height: 135%; left: -17.5%; top: -17.5%; opacity: .85; mix-blend-mode: lighten; animation: mistDriftB 32s ease-in-out infinite; will-change: transform; }
-        .orb-stage .m3 { position: absolute; width: 160%; height: 160%; left: -30%; top: -30%; opacity: .55; mix-blend-mode: overlay; animation: mistSwirl 22s ease-in-out infinite; will-change: transform; }
+        .orb-stage .m1 { position: absolute; width: 150%; height: 150%; left: -25%; top: -25%; animation: mistDriftA 18s ease-in-out infinite; will-change: transform; }
+        .orb-stage .m2 { position: absolute; width: 135%; height: 135%; left: -17.5%; top: -17.5%; opacity: .85; mix-blend-mode: lighten; animation: mistDriftB 23s ease-in-out infinite; will-change: transform; }
+        .orb-stage .m3 { position: absolute; width: 160%; height: 160%; left: -30%; top: -30%; opacity: .55; mix-blend-mode: overlay; animation: mistSwirl 16s ease-in-out infinite; will-change: transform; }
         .orb-stage .base { background: radial-gradient(circle at 50% 44%, hsl(250,72%,40%) 0%, hsl(262,66%,26%) 58%, hsl(272,60%,13%) 100%); }
         .orb-stage .core { background: radial-gradient(circle at 50% 46%, rgba(140,130,255,0.4) 0%, rgba(110,90,230,0.28) 55%, rgba(96,74,224,0.14) 78%, rgba(96,74,224,0) 100%); mix-blend-mode: screen; animation: coreBreathe 9s ease-in-out infinite; will-change: opacity, transform; }
         .orb-stage .tint { inset: -8%; background: linear-gradient(135deg, hsl(244,75%,50%) 0%, hsl(258,70%,42%) 55%, hsl(276,65%,32%) 100%); mix-blend-mode: soft-light; opacity: .85; animation: tintDrift 16s ease-in-out infinite; will-change: transform; }

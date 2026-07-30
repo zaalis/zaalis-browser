@@ -15,6 +15,7 @@ coverage/
 out/
 release/
 *.dmg
+*.exe
 *.zip
 *.pem
 *.key

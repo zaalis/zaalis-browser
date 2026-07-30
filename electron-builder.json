@@ -1,10 +1,10 @@
 {
   "appId": "com.zaalis.browser",
-  "productName": "zaalis browser",
+  "productName": "zaalis Browser",
   "directories": {
     "output": "dist"
   },
-  "afterPack": "scripts/afterPack.js",
+  "afterPack": "scripts/after-pack.js",
   "files": [
     "main.js",
     "preload-chrome.js",
@@ -13,30 +13,23 @@
     "assets/**/*",
     "package.json"
   ],
-  "mac": {
-    "category": "public.app-category.utilities",
-    "icon": "assets/icon.icns",
-    "extendInfo": {
-      "NSMicrophoneUsageDescription": "Le micro est utilisé par le mode vocal pour converser avec l'IA, entièrement en local."
-    },
+  "win": {
+    "icon": "assets/zaalis.ico",
+    "signAndEditExecutable": false,
     "target": [
-      { "target": "dmg", "arch": ["arm64", "x64"] }
-    ],
-    "identity": null,
-    "hardenedRuntime": false,
-    "gatekeeperAssess": false
-  },
-  "dmg": {
-    "title": "zaalis browser",
-    "artifactName": "zaalisBrowser-${version}-${arch}.dmg",
-    "window": {
-      "width": 680,
-      "height": 420
-    },
-    "iconSize": 96,
-    "contents": [
-      { "x": 185, "y": 210 },
-      { "x": 495, "y": 210, "type": "link", "path": "/Applications" }
+      { "target": "nsis", "arch": ["x64"] }
     ]
+  },
+  "nsis": {
+    "artifactName": "zaalisBrowser-${version}-setup.${ext}",
+    "installerSidebar": "assets/installer-sidebar.bmp",
+    "installerIcon": "assets/zaalis.ico",
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "perMachine": false,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "zaalis Browser",
+    "deleteAppDataOnUninstall": false
   }
 }

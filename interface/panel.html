@@ -13,11 +13,17 @@
   }
   * { box-sizing:border-box; }
   html,body { margin:0; height:100%; overflow:hidden; }
+  html { background:transparent; }
   body {
     font-family:"Segoe UI",Arial,sans-serif; background:var(--bg); color:var(--text);
     display:flex; flex-direction:column; user-select:none; -webkit-user-select:none;
-    border-left:1px solid var(--border); border-top-left-radius:16px; overflow:hidden;
+    border-left:1px solid var(--border); border-radius:10px 0 0 10px; overflow:hidden;
+    transform:translate3d(100%,0,0); transform-origin:right center;
+    transition:transform 190ms cubic-bezier(.22,.61,.36,1);
+    will-change:transform; backface-visibility:hidden; contain:paint;
   }
+  body.panel-visible { transform:translate3d(0,0,0); }
+  @media (prefers-reduced-motion: reduce) { body { transition-duration:1ms; } }
   .head {
     display:flex; align-items:center; gap:8px; height:50px; padding:0 10px;
     border-bottom:1px solid var(--border); flex:none; background:var(--menu);
@@ -68,10 +74,11 @@
   }
   .switch::after {
     content:""; position:absolute; top:3px; left:3px; width:15px; height:15px;
-    border-radius:50%; background:#fff; transition:left .15s ease;
+    border-radius:50%; background:#fff; transform:translate3d(0,0,0);
+    transition:transform .15s ease; will-change:transform;
   }
   .switch.on { background:var(--accent); }
-  .switch.on::after { left:20px; }
+  .switch.on::after { transform:translate3d(17px,0,0); }
   select {
     max-width:126px; height:30px; border:1px solid var(--border); border-radius:999px;
     color:var(--text); background:var(--bg); padding:0 8px; outline:none; flex:none;
@@ -409,6 +416,23 @@
   const post = (...p) => { if (wv) wv.postMessage(p.join(SEP)); };
   const $ = id => document.getElementById(id);
   let state = { zoomPct:100 };
+  let panelVisibilityFrame = 0;
+
+  function setPanelVisibility(open) {
+    if (panelVisibilityFrame) cancelAnimationFrame(panelVisibilityFrame);
+    if (!open) {
+      document.body.classList.remove("panel-visible");
+      panelVisibilityFrame = 0;
+      return;
+    }
+    document.body.classList.remove("panel-visible");
+    panelVisibilityFrame = requestAnimationFrame(() => {
+      panelVisibilityFrame = requestAnimationFrame(() => {
+        document.body.classList.add("panel-visible");
+        panelVisibilityFrame = 0;
+      });
+    });
+  }
 
   const SCREENS = ["menu","appearance","search","privacy","control","voice","devmode","history","downloads","aimodels","aisub","voiceproviders","voicesub"];
   const TITLES = { menu:"Parametres", appearance:"Apparence", search:"Recherche",
@@ -788,6 +812,7 @@
       showScreen("downloads");
     }
     else if (d.type === "showMenu") showScreen("menu");
+    else if (d.type === "panelVisibility") setPanelVisibility(!!d.open);
   });
 
   showScreen("menu");
