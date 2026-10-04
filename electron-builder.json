@@ -1,6 +1,8 @@
 {
   "appId": "com.zaalis.browser",
   "productName": "zaalis Browser",
+  "electronDist": "node_modules/electron/dist",
+  "electronVersion": "43.5.0",
   "directories": {
     "output": "dist"
   },
@@ -17,7 +19,12 @@
     "icon": "assets/zaalis.ico",
     "signAndEditExecutable": false,
     "target": [
-      { "target": "nsis", "arch": ["x64"] }
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
     ]
   },
   "nsis": {

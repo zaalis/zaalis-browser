@@ -10,13 +10,14 @@
   "license": "AGPL-3.0-only",
   "scripts": {
     "start": "electron .",
+    "postinstall": "node node_modules/electron/install.js",
     "test": "node --check main.js && node --check preload-chrome.js && node --check preload-content.js",
     "selftest": "set ZAALIS_AGENT_SELFTEST=core&& electron .",
     "pack:win": "electron-builder --win nsis --x64 --config electron-builder.json",
     "pack:x64": "npm run pack:win"
   },
   "devDependencies": {
-    "electron": "^43.1.0",
+    "electron": "https://github.com/castlabs/electron-releases#v43.5.0+wvcus",
     "electron-builder": "^25.1.8",
     "png2icons": "^2.0.1"
   }

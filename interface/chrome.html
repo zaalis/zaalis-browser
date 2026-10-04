@@ -503,6 +503,9 @@
   .sip-cookie-list { max-height: 190px; overflow: auto; margin: 0 2px 8px; border: 1px solid var(--border); border-radius: 11px; }
   .sip-cookie { padding: 8px 10px; border-bottom: 1px solid var(--border); }
   .sip-cookie:last-child { border-bottom: 0; }
+  .sip-toggle { cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .sip-toggle:hover { background: var(--surface-h); }
+  .sip-cookie.sip-toggle .m { margin-top: 0; color: var(--accent); }
   .sip-cookie .n { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sip-cookie .m { margin-top: 2px; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sip-empty { color: var(--muted); font-size: 12.5px; text-align: center; padding: 22px 10px; }
@@ -935,6 +938,12 @@
   const wv = window.zaalisBridge;
   const SEP = "\x1f";
   function post(...parts){ if (wv) wv.postMessage(parts.join(SEP)); }
+  // Libellés propres à la plateforme (Explorateur et Ctrl sous Windows).
+  const IS_MAC = /Mac/i.test(navigator.platform || "");
+  const REVEAL_LABEL = IS_MAC ? "Afficher dans le Finder" : "Afficher dans le dossier";
+  if (!IS_MAC) document.addEventListener("DOMContentLoaded", () => {
+    const nt = document.getElementById("newtab"); if (nt) nt.title = "Nouvel onglet (Ctrl+T)";
+  });
 
   const $ = id => document.getElementById(id);
   const tabsEl = $("tabs"), omni = $("omni"), addr = $("address");
@@ -1013,10 +1022,13 @@
       const permissions = Array.isArray(info.permissions) ? info.permissions : [];
       let html = sipHeader("Paramètres du site", true);
       html += '<div class="sip-note">Autorisations accordées ou bloquées pour <b>' + escHtml(host) + '</b>.</div>';
-      html += permissions.length ? '<div class="sip-cookie-list">' + permissions.map(p => '<div class="sip-cookie"><div class="n">' + escHtml(p.permission) + '</div><div class="m">' + (p.value === 'allow' ? 'Autorisé' : 'Bloqué') + '</div></div>').join("") + '</div>' : '<div class="sip-empty">Aucune autorisation spécifique pour ce site.</div>';
+      html += permissions.length ? '<div class="sip-cookie-list">' + permissions.map(p => '<div class="sip-cookie"><div class="n">' + escHtml(p.label || p.permission) + '</div><div class="m">' + (p.value === 'allow' ? 'Autorisé' : 'Bloqué') + '</div></div>').join("") + '</div>' : '<div class="sip-empty">Aucune autorisation spécifique pour ce site.</div>';
+      // Pop-ups : bloquées sans action de l'utilisateur, comme dans Chrome.
+      html += '<div class="sip-cookie-list"><div class="sip-cookie sip-toggle" id="sip-popups" title="Cliquer pour changer"><div class="n">Pop-ups et redirections</div><div class="m">' + (info.popupsAllowed ? 'Autorisées' : 'Bloquées sans clic') + '</div></div></div>';
       html += '<button class="sip-danger" id="sip-reset-perms">Réinitialiser les autorisations</button>';
       pop.innerHTML = html; wireSiteInfoHeader();
       $("sip-reset-perms").onclick = () => post("resetSitePermissions");
+      $("sip-popups").onclick = () => post("setSitePopups", info.popupsAllowed ? "0" : "1");
     } else {
       const cookieCount = Array.isArray(info.cookies) ? info.cookies.length : 0;
       const secure = info.available ? !!info.secure : /^https:\/\//i.test(state.active.url || "");
@@ -1401,6 +1413,7 @@
     return b;
   }
 
+  const ICON_RESUME = '<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>';
   const ICON_FOLDER = '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
   const ICON_OPEN   = '<svg viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4l-8 8"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>';
 
@@ -1428,8 +1441,9 @@
       row.appendChild(meta);
 
       const done = d.state === "completed";
-      // La "loupe" facon Finder : revele le fichier dans le gestionnaire.
-      row.appendChild(dlAction("Afficher dans le Finder", ICON_FOLDER, done, () => post("showDownload", d.id)));
+      // Révèle le fichier dans le gestionnaire de fichiers (Explorateur / Finder).
+      if (d.state === "interrupted") row.appendChild(dlAction("Reprendre le téléchargement", ICON_RESUME, true, () => post("resumeDownload", d.id)));
+      row.appendChild(dlAction(REVEAL_LABEL, ICON_FOLDER, done, () => post("showDownload", d.id)));
       row.appendChild(dlAction("Ouvrir le fichier",       ICON_OPEN,   done, () => post("openDownload", d.id)));
       if (done) row.ondblclick = () => post("openDownload", d.id);
       list.appendChild(row);

@@ -414,24 +414,34 @@
   const wv = window.zaalisBridge;
   const SEP = "\x1f";
   const post = (...p) => { if (wv) wv.postMessage(p.join(SEP)); };
+  const IS_MAC = /Mac/i.test(navigator.platform || "");
+  if (!IS_MAC) document.querySelectorAll(".hint").forEach(h => { h.textContent = h.textContent.replace("⌘⇧N", "Ctrl+Maj+N"); });
   const $ = id => document.getElementById(id);
   let state = { zoomPct:100 };
   let panelVisibilityFrame = 0;
 
+  let panelVisibilityTimer = 0;
   function setPanelVisibility(open) {
     if (panelVisibilityFrame) cancelAnimationFrame(panelVisibilityFrame);
+    clearTimeout(panelVisibilityTimer);
     if (!open) {
       document.body.classList.remove("panel-visible");
       panelVisibilityFrame = 0;
       return;
     }
     document.body.classList.remove("panel-visible");
+    const show = () => {
+      if (panelVisibilityFrame) cancelAnimationFrame(panelVisibilityFrame);
+      clearTimeout(panelVisibilityTimer);
+      panelVisibilityFrame = 0;
+      document.body.classList.add("panel-visible");
+    };
     panelVisibilityFrame = requestAnimationFrame(() => {
-      panelVisibilityFrame = requestAnimationFrame(() => {
-        document.body.classList.add("panel-visible");
-        panelVisibilityFrame = 0;
-      });
+      panelVisibilityFrame = requestAnimationFrame(show);
     });
+    // Fenêtre couverte ou réduite : Chromium suspend requestAnimationFrame.
+    // Le panneau doit quand même être ouvert quand elle redevient visible.
+    panelVisibilityTimer = setTimeout(show, 150);
   }
 
   const SCREENS = ["menu","appearance","search","privacy","control","voice","devmode","history","downloads","aimodels","aisub","voiceproviders","voicesub"];
@@ -534,7 +544,10 @@
           true, "danger-btn", () => post("cancelDownload", d.id)));
       } else {
         const done = d.state === "completed";
-        el.appendChild(dlBtn("Afficher dans le Finder",
+        if (d.state === "interrupted") {
+          el.appendChild(dlBtn("Reprendre le telechargement", '<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>', true, "", () => post("resumeDownload", d.id)));
+        }
+        el.appendChild(dlBtn(IS_MAC ? "Afficher dans le Finder" : "Afficher dans le dossier",
           '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
           done, "", () => post("showDownload", d.id)));
         el.appendChild(dlBtn("Retirer de la liste",
@@ -624,7 +637,12 @@
   };
 
   function renderAiConnect() {
-    setSwitch("ai-connect", !!state.aiConnectEnabled && state.aiStatus === "connected");
+    // Le commutateur reflete le REGLAGE (connexion autorisee), pas l'etat de la
+    // liaison. Sinon, tant que l'IDE ne repond pas, il s'affiche eteint alors que
+    // le reglage est actif : le clic suivant, cense reactiver, coupe reellement
+    // la connexion — et l'IA reste morte meme une fois l'IDE revenu.
+    // L'etat reel de la liaison est deja donne par le libelle + le message.
+    setSwitch("ai-connect", !!state.aiConnectEnabled);
     const st = AI_STATUS_TEXTS[state.aiStatus] || AI_STATUS_TEXTS.unreachable;
     $("ai-connect-hint").textContent = st.hint;
     const msgEl = $("ai-connect-msg");

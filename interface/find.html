@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Rechercher dans la page</title>
+<style>
+  /* Barre « Rechercher dans la page » (Ctrl+F), suspendue sous la barre
+     d'outils en haut à droite, comme celle de Chrome. */
+  body {
+    --bar:     #f7f8fa;
+    --text:    #202124;
+    --muted:   #5f6368;
+    --border:  #d2d5d9;
+    --hover:   #e2e5e9;
+    --input:   #ffffff;
+    --accent:  #1a73e8;
+    --danger:  #d93025;
+  }
+  body.dark {
+    --bar:     #35363a;
+    --text:    #e8eaed;
+    --muted:   #9aa0a6;
+    --border:  #4a4d51;
+    --hover:   #45474b;
+    --input:   #202124;
+    --accent:  #8ab4f8;
+    --danger:  #f28b82;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
+  body { font-family: "Segoe UI", -apple-system, Arial, sans-serif; padding: 2px 12px 14px; user-select: none; }
+  .card {
+    display: flex; align-items: center; gap: 4px; height: 46px; padding: 0 6px 0 12px;
+    background: var(--bar); color: var(--text); border: 1px solid var(--border);
+    border-radius: 0 0 12px 12px; box-shadow: 0 6px 16px rgba(0,0,0,.18);
+  }
+  input {
+    flex: 1; min-width: 0; height: 30px; border: 0; outline: none; font: inherit; font-size: 14px;
+    color: var(--text); background: transparent;
+  }
+  .count { font-size: 12.5px; color: var(--muted); padding: 0 8px 0 4px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .count.none { color: var(--danger); }
+  .sep { width: 1px; height: 24px; background: var(--border); margin: 0 4px; }
+  button {
+    width: 32px; height: 32px; border: 0; border-radius: 50%; background: transparent; color: var(--text);
+    display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0;
+  }
+  button:hover { background: var(--hover); }
+  button:disabled { opacity: .38; cursor: default; background: transparent; }
+  button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <input id="q" type="text" spellcheck="false" autocomplete="off" aria-label="Rechercher dans la page" placeholder="Rechercher dans la page">
+    <span class="count" id="count"></span>
+    <span class="sep"></span>
+    <button id="prev" title="Résultat précédent (Maj+Entrée)" aria-label="Résultat précédent"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+    <button id="next" title="Résultat suivant (Entrée)" aria-label="Résultat suivant"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+    <button id="close" title="Fermer (Échap)" aria-label="Fermer"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+<script>
+  const SEP = "\x1f";
+  const wv = window.zaalisBridge || null;
+  const post = (...p) => { if (wv) wv.postMessage(p.join(SEP)); };
+  const q = document.getElementById("q");
+  const count = document.getElementById("count");
+  const prev = document.getElementById("prev");
+  const next = document.getElementById("next");
+  let timer = null;
+
+  function setCount(active, total) {
+    if (!q.value) { count.textContent = ""; count.classList.remove("none"); }
+    else { count.textContent = (total ? active : 0) + "/" + total; count.classList.toggle("none", !total); }
+    prev.disabled = next.disabled = !total;
+  }
+
+  q.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { post("findQuery", q.value); if (!q.value) setCount(0, 0); }, 60);
+  });
+  q.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); post(e.shiftKey ? "findPrev" : "findNext"); }
+    else if (e.key === "Escape") { e.preventDefault(); post("findClose"); }
+    else if (e.key === "F3") { e.preventDefault(); post(e.shiftKey ? "findPrev" : "findNext"); }
+  });
+  prev.onclick = () => post("findPrev");
+  next.onclick = () => post("findNext");
+  document.getElementById("close").onclick = () => post("findClose");
+
+  if (wv) wv.addEventListener("message", (evt) => {
+    const d = evt.data || {};
+    if (d.type === "findOpen") {
+      document.body.classList.toggle("dark", d.theme === "dark");
+      if (typeof d.text === "string" && d.text !== q.value) q.value = d.text;
+      q.focus(); q.select();
+      if (!q.value) setCount(0, 0);
+    } else if (d.type === "findResult") {
+      setCount(d.active, d.total);
+    }
+  });
+  setCount(0, 0);
+  post("findReady");
+</script>
+</body>
+</html>

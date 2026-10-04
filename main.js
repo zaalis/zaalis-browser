@@ -1,24 +1,28 @@
 /* =============================================================================
- *  zaalis browser — port macOS (Electron)
+ *  zaalis browser — Windows / macOS (Electron for Content Security)
  * -----------------------------------------------------------------------------
  *  Reproduit le comportement du navigateur natif Windows :
  *   - Fenêtre unique avec chrome custom (chrome.html) en haut, contenu par onglet
  *     en dessous (WebContentsView par onglet, seul l'actif visible).
  *   - Page d'accueil zaalis (index.html) via protocole zaalis://.
  *   - Panneau latéral droit (panel.html) pour paramètres / historique.
- *   - Favoris, historique, raccourcis, réglages persistés dans
- *     ~/Library/Application Support/zaalis browser/.
+ *   - Favoris, historique, raccourcis, réglages persistés dans le dossier
+ *     de données de l'app (%APPDATA%\zaalis browser sous Windows).
  *   - API locale HTTP sur 127.0.0.1:8715 (search / open / newtab).
  *   - Bus de messages entre chrome/panel et le main via IPC, compatible avec
  *     le protocole 'action\x1farg' des pages HTML d'origine.
+ *   - Widevine (Prime Video, Netflix, Disney+…) via le build castlabs ECS.
  * =========================================================================== */
 
 'use strict';
 
+const electron = require('electron');
 const {
-  app, BaseWindow, WebContentsView, ipcMain, Menu, shell,
-  protocol, net, session, nativeImage, dialog
-} = require('electron');
+  app, BaseWindow, BrowserWindow, WebContentsView, ipcMain, Menu, shell,
+  protocol, net, session, nativeImage, dialog, clipboard, desktopCapturer
+} = electron;
+// API propre au build castlabs (Widevine). Absente d'un Electron standard.
+const components = electron.components || null;
 const path = require('path');
 const fs   = require('fs');
 const os   = require('os');
@@ -34,10 +38,20 @@ const PANEL_URL  = 'zaalis://home/panel.html';
 const SEP        = '\x1f';
 const API_PORT   = 8715;
 const PANEL_WIDTH = 340;
-// Au retour sur un onglet web laisse en arriere-plan, on revalide la page
-// apres ce delai. Cela rend visibles les publications/deploiements recents
-// sans vider la session (cookies, connexion et formulaires restent intacts).
+// Au retour sur un onglet de serveur de développement local (localhost…)
+// laissé en arrière-plan, on revalide la page après ce délai pour voir la
+// dernière version publiée par l'IDE. Jamais pour les sites ordinaires :
+// comme dans Chrome, une vidéo en pause, un formulaire ou une conversation
+// doivent retrouver exactement leur état au retour sur l'onglet.
 const STALE_TAB_REFRESH_MS = 4000;
+
+function isLocalDevUrl(u) {
+  try {
+    const h = new URL(u).hostname.toLowerCase();
+    return h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.test') ||
+           h === '127.0.0.1' || h === '[::1]' || h === '::1';
+  } catch { return false; }
+}
 
 // ----- État global -----------------------------------------------------------
 
@@ -623,8 +637,20 @@ function resolveQuery(q) {
 // libelle et la synthese. Aucune cle secrete n'est embarquee : la synthese est
 // construite localement a partir des extraits des sources.
 
-const AI_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-              '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+// User-Agent identique à celui de Google Chrome (version réduite « 150.0.0.0 »).
+// L'UA par défaut d'Electron contient « zaalisbrowser/x » et « Electron/x » :
+// Google refuse alors la connexion (« navigateur non sécurisé ») et des sites
+// comme Prime Video, Netflix ou WhatsApp Web servent une page d'incompatibilité.
+function chromeUserAgent() {
+  const major = String(process.versions.chrome || '150').split('.')[0];
+  const platform = process.platform === 'darwin' ? 'Macintosh; Intel Mac OS X 10_15_7'
+                 : process.platform === 'win32'  ? 'Windows NT 10.0; Win64; x64'
+                 : 'X11; Linux x86_64';
+  return `Mozilla/5.0 (${platform}) AppleWebKit/537.36 (KHTML, like Gecko) ` +
+         `Chrome/${major}.0.0.0 Safari/537.36`;
+}
+
+const AI_UA = chromeUserAgent();
 
 function httpGet(urlStr, headers) {
   return new Promise((resolve, reject) => {
@@ -1026,8 +1052,44 @@ async function runAiSearch(q, sender) {
   }
 }
 
+// Libellé + explication d'un code d'erreur réseau Chromium (net_error_list.h).
+// Avant, toute erreur affichait « vérifiez l'adresse », y compris quand le lien
+// était correct (coupure réseau, certificat, redirections en boucle…).
+function describeNetError(code, host) {
+  const c = Number(code);
+  const known = {
+    '-105': ['ERR_NAME_NOT_RESOLVED', 'Ce site est inaccessible', `Impossible de trouver l'adresse IP du serveur de <code>${host}</code>. Vérifiez l'adresse saisie.`],
+    '-137': ['ERR_NAME_RESOLUTION_FAILED', 'Ce site est inaccessible', `La résolution DNS de <code>${host}</code> a échoué. Vérifiez votre connexion ou votre DNS.`],
+    '-106': ['ERR_INTERNET_DISCONNECTED', 'Aucune connexion Internet', 'Vérifiez le câble réseau, le modem ou le Wi-Fi, puis réessayez.'],
+    '-21':  ['ERR_NETWORK_CHANGED', 'La connexion a été interrompue', 'Un changement de réseau a été détecté. Réessayez.'],
+    '-100': ['ERR_CONNECTION_CLOSED', 'Ce site est inaccessible', `<code>${host}</code> a fermé la connexion de manière inattendue.`],
+    '-101': ['ERR_CONNECTION_RESET', 'Ce site est inaccessible', 'La connexion a été réinitialisée. Un pare-feu, un proxy ou le réseau peut en être la cause.'],
+    '-102': ['ERR_CONNECTION_REFUSED', 'Ce site est inaccessible', `<code>${host}</code> n'autorise pas la connexion.`],
+    '-104': ['ERR_CONNECTION_FAILED', 'Ce site est inaccessible', 'La tentative de connexion a échoué.'],
+    '-109': ['ERR_ADDRESS_UNREACHABLE', 'Ce site est inaccessible', `L'adresse de <code>${host}</code> est injoignable depuis ce réseau.`],
+    '-118': ['ERR_CONNECTION_TIMED_OUT', 'Ce site est inaccessible', `<code>${host}</code> a mis trop de temps à répondre.`],
+    '-7':   ['ERR_TIMED_OUT', 'Ce site est inaccessible', `<code>${host}</code> a mis trop de temps à répondre.`],
+    '-310': ['ERR_TOO_MANY_REDIRECTS', 'Cette page ne fonctionne pas', `<code>${host}</code> vous a redirigé à de trop nombreuses reprises. Effacez les cookies de ce site puis réessayez.`],
+    '-20':  ['ERR_BLOCKED_BY_CLIENT', 'Cette page a été bloquée', 'Le chargement de cette page a été bloqué.'],
+    '-27':  ['ERR_BLOCKED_BY_RESPONSE', 'Cette page a été bloquée', 'Le serveur interdit l\'affichage de cette page dans ce contexte.'],
+    '-300': ['ERR_INVALID_URL', 'Adresse non valide', 'L\'adresse de cette page n\'est pas valide.'],
+    '-301': ['ERR_DISALLOWED_URL_SCHEME', 'Adresse non prise en charge', 'Ce type de lien ne peut pas être ouvert dans un onglet.'],
+    '-302': ['ERR_UNKNOWN_URL_SCHEME', 'Adresse non prise en charge', 'Ce type de lien ne peut pas être ouvert dans un onglet.'],
+    '-324': ['ERR_EMPTY_RESPONSE', 'Cette page ne fonctionne pas', `<code>${host}</code> n'a envoyé aucune donnée.`],
+    '-337': ['ERR_HTTP2_PROTOCOL_ERROR', 'Cette page ne fonctionne pas', `<code>${host}</code> a renvoyé une réponse non valide. Réessayez.`],
+    '-356': ['ERR_QUIC_PROTOCOL_ERROR', 'Cette page ne fonctionne pas', 'Erreur du protocole QUIC. Réessayez.'],
+    '-130': ['ERR_PROXY_CONNECTION_FAILED', 'Aucune connexion Internet', 'Le serveur proxy ne répond pas. Vérifiez les paramètres proxy de Windows.'],
+  };
+  if (known[String(c)]) return known[String(c)];
+  if (c <= -200 && c > -300) {
+    return ['ERR_CERT_' + Math.abs(c), 'Votre connexion n\'est pas privée',
+      `Le certificat de sécurité de <code>${host}</code> n'est pas valide. Des personnes malveillantes pourraient tenter de dérober vos informations.`];
+  }
+  return [`ERREUR_${c}`, 'Cette page ne fonctionne pas', `Impossible d'afficher <code>${host}</code> pour le moment.`];
+}
+
 // Page d'erreur maison (chargée quand une navigation échoue).
-function errorPageHtml(u, code, desc) {
+function errorPageHtml(u, code, desc, override) {
   let host = u;
   try { host = new URL(u).host || u; } catch {}
   const dark = settings.theme === 'dark';
@@ -1035,20 +1097,14 @@ function errorPageHtml(u, code, desc) {
   const fg   = dark ? '#e8eaed' : '#202124';
   const mut  = dark ? '#9aa0a6' : '#5f6368';
   const accent = dark ? '#8ab4f8' : '#1a73e8';
-  // Petite table code -> libellé
-  const knownCodes = {
-    '-105': 'DNS_INTROUVABLE',
-    '-106': 'CONNEXION_INTERROMPUE',
-    '-109': 'ADRESSE_INJOIGNABLE',
-    '-137': 'DNS_INTROUVABLE',
-    '-118': 'DELAI_DE_CONNEXION_DEPASSE',
-    '-501': 'CERTIFICAT_NON_VALIDE',
-    '-200': 'CERTIFICAT_NON_VALIDE',
-  };
-  const shortCode = knownCodes[String(code)] || `ERREUR_${code}`;
-  const encHost = String(host).replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
-  const encUrl  = String(u).replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
-  return `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>Page inaccessible</title>
+  const esc = s => String(s).replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
+  const encHost = esc(host);
+  const encUrl  = esc(u);
+  const [shortCode, title, message] = override || describeNetError(code, encHost);
+  // « Réessayer » recharge l'adresse d'origine : un simple location.reload()
+  // rechargerait la page d'erreur elle-même (document data:).
+  const retry = /^https?:/i.test(String(u)) ? JSON.stringify(String(u)).replace(/</g, '\\u003c') : 'null';
+  return `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>${esc(title)}</title>
 <style>
   html,body{margin:0;height:100%;background:${bg};color:${fg};font-family:-apple-system,"Segoe UI",Arial,sans-serif;}
   .wrap{max-width:640px;margin:0 auto;padding:96px 32px;}
@@ -1061,14 +1117,18 @@ function errorPageHtml(u, code, desc) {
   .details{margin-top:36px;font-size:13px;color:${mut};}
   .details b{color:${fg};font-weight:600;}
 </style></head><body><div class="wrap">
-  <h1>Ce site est inaccessible</h1>
-  <p>Vérifiez que l'adresse <code>${encHost}</code> est correcte.</p>
+  <h1>${esc(title)}</h1>
+  <p>${message}</p>
   <div class="actions">
-    <button onclick="location.reload()">Réessayer</button>
-    <button class="ghost" onclick="history.back()">Retour</button>
+    <button id="retry">Réessayer</button>
+    <button class="ghost" id="back">Retour</button>
   </div>
-  <div class="details"><b>${shortCode}</b><br>${encUrl}</div>
-</div></body></html>`;
+  <div class="details"><b>${esc(shortCode)}</b><br>${encUrl}</div>
+</div><script>
+  const target = ${retry};
+  document.getElementById('retry').onclick = () => { if (target) location.href = target; else location.reload(); };
+  document.getElementById('back').onclick = () => history.back();
+</script></body></html>`;
 }
 
 function activeTab() { return active >= 0 ? tabs[active] : null; }
@@ -1092,12 +1152,46 @@ function removeHistoryUrl(u) {
 
 // ----- Layout ---------------------------------------------------------------
 
+// Plein écran : vidéo HTML5 (YouTube, Prime Video…) ou F11. Comme Chrome, la
+// barre d'onglets et d'outils disparaît et la page occupe tout l'écran.
+let htmlFullscreenTabId = null;
+
+function fullscreenTab() {
+  if (htmlFullscreenTabId == null) return null;
+  const t = tabs.find(x => x.id === htmlFullscreenTabId);
+  if (!t || t.view.webContents.isDestroyed()) { htmlFullscreenTabId = null; return null; }
+  return t;
+}
+
+function windowFullscreen() {
+  try { return !!(mainWin && mainWin.isFullScreen()); } catch { return false; }
+}
+
 function layoutAll() {
   if (!mainWin || !chromeView) return;
   const [w, h] = mainWin.getContentSize();
-  chromeView.setBounds({ x: 0, y: 0, width: w, height: chromeHeight });
 
-  const bodyTop = contentTop;
+  const fsTab = fullscreenTab();
+  if (fsTab) {
+    // Seul l'onglet en plein écran reste visible, sur toute la fenêtre.
+    chromeView.setVisible(false);
+    for (const t of tabs) {
+      if (t === fsTab) { t.view.setBounds({ x: 0, y: 0, width: w, height: h }); t.view.setVisible(true); }
+      else t.view.setVisible(false);
+    }
+    if (panelView && panelViewVisible) panelView.setVisible(false);
+    if (aiPanelView && aiPanelVisible) aiPanelView.setVisible(false);
+    if (findView) findView.setVisible(false);
+    return;
+  }
+
+  const immersive = windowFullscreen();     // F11 : pas de barre, comme Chrome
+  chromeView.setVisible(!immersive);
+  chromeView.setBounds({ x: 0, y: 0, width: w, height: chromeHeight });
+  if (panelView && panelViewVisible) panelView.setVisible(true);
+  if (aiPanelView && aiPanelVisible) aiPanelView.setVisible(true);
+
+  const bodyTop = immersive ? 0 : contentTop;
   const bodyHeight = Math.max(0, h - bodyTop);
   // Le chat IA est un panneau ancré : sa largeur est réservée à droite
   // dès son ouverture. Ainsi, les pages (et les vues fractionnées) se
@@ -1134,6 +1228,8 @@ function layoutAll() {
   layoutPanel();
 
   layoutAiPanel();
+
+  layoutFindBar(bodyTop, bodyWidth);
 }
 
 // Le panneau de réglages est une surcouche : son animation ne doit jamais
@@ -1349,13 +1445,30 @@ function scheduleDownloadsPush() {
   downloadsPushTimer = setTimeout(() => { downloadsPushTimer = null; pushDownloads(); }, 120);
 }
 
-// ~/Telechargements/nom.zip -> nom-2.zip si le fichier existe deja.
+// Chemins déjà attribués à un téléchargement en cours : Chromium n'écrit le
+// fichier final qu'à la fin (.crdownload avant), donc deux fichiers homonymes
+// lancés ensemble recevraient sinon le même chemin et s'écraseraient.
+const reservedDownloadPaths = new Set();
+// URL pour lesquelles l'utilisateur a demandé « Enregistrer sous… ».
+const saveAsRequests = new Set();
+
+// Caractères interdits par Windows dans un nom de fichier (et noms réservés).
+function safeDownloadName(filename) {
+  // Pas de path.basename : sous Windows, « a:b.txt » serait lu comme un lecteur.
+  let name = String(filename || '').replace(/[\\/]/g, '_');
+  name = name.replace(/[<>:"|?*\x00-\x1f]/g, '_').replace(/^\s+|[. ]+$/g, '').slice(0, 200);
+  if (/^(con|prn|aux|nul|com\d|lpt\d)(\..*)?$/i.test(name)) name = '_' + name;
+  return name || 'telechargement';
+}
+
+// Telechargements/nom.zip -> nom (1).zip si le fichier existe deja (comme Chrome).
 function uniqueDownloadPath(dir, filename) {
-  filename = path.basename(String(filename || '').replace(/[\\/]/g, '_')) || 'telechargement';
+  filename = safeDownloadName(filename);
   const ext  = path.extname(filename);
   const base = path.basename(filename, ext);
+  const taken = p => fs.existsSync(p) || reservedDownloadPaths.has(p.toLowerCase());
   let p = path.join(dir, filename);
-  for (let i = 2; fs.existsSync(p); i++) p = path.join(dir, `${base}-${i}${ext}`);
+  for (let i = 1; taken(p); i++) p = path.join(dir, `${base} (${i})${ext}`);
   return p;
 }
 
@@ -1379,18 +1492,27 @@ function attachDownloads(ses) {
   ses.on('will-download', (_e, item) => {
     const id = 'd' + Date.now() + '-' + (++downloadSeq);
     const dir = app.getPath('downloads');
+    const itemUrl = item.getURL();
+    const askWhere = saveAsRequests.delete(itemUrl);
     let savePath = '';
     try {
       fs.mkdirSync(dir, { recursive: true });
       savePath = uniqueDownloadPath(dir, item.getFilename());
-      item.setSavePath(savePath);
+      if (askWhere) {
+        // « Enregistrer sous… » : boîte de dialogue native, comme Chrome.
+        item.setSaveDialogOptions({ defaultPath: savePath, title: 'Enregistrer sous' });
+        savePath = '';
+      } else {
+        item.setSavePath(savePath);
+      }
     } catch { savePath = ''; }
+    if (savePath) reservedDownloadPaths.add(savePath.toLowerCase());
 
     const entry = {
       id,
-      name: savePath ? path.basename(savePath) : item.getFilename(),
+      name: savePath ? path.basename(savePath) : safeDownloadName(item.getFilename()),
       path: savePath,
-      url: item.getURL(),
+      url: itemUrl,
       state: 'progressing',
       received: 0,
       total: item.getTotalBytes() || 0,
@@ -1401,7 +1523,14 @@ function attachDownloads(ses) {
     liveDownloads.set(id, item);
     pushDownloads();
 
+    // Avec « Enregistrer sous… », le chemin n'est connu qu'après la boîte.
+    const syncPath = () => {
+      const p = item.getSavePath();
+      if (p && p !== entry.path) { entry.path = p; entry.name = path.basename(p); }
+    };
+
     item.on('updated', (__e, state) => {
+      syncPath();
       entry.received = item.getReceivedBytes();
       entry.total    = item.getTotalBytes() || entry.total;
       entry.state    = state === 'interrupted' ? 'interrupted' : 'progressing';
@@ -1410,16 +1539,37 @@ function attachDownloads(ses) {
     });
 
     item.once('done', (__e, state) => {
+      syncPath();
       liveDownloads.delete(id);
+      if (savePath) reservedDownloadPaths.delete(savePath.toLowerCase());
       entry.received = item.getReceivedBytes();
       entry.total    = item.getTotalBytes() || entry.received;
       entry.state    = state === 'completed' ? 'completed'
                      : state === 'cancelled' ? 'cancelled' : 'interrupted';
       if (entry.state === 'completed') attachFileIcon(entry);
+      // Boîte « Enregistrer sous » annulée : rien n'a été téléchargé.
+      if (entry.state === 'cancelled' && askWhere && !entry.path) downloads = downloads.filter(d => d !== entry);
       saveDownloads();
       pushDownloads();
     });
   });
+}
+
+// Reprend un téléchargement interrompu (réseau coupé…) ou le relance depuis
+// son URL s'il ne peut plus être repris, comme le bouton « Reprendre » de Chrome.
+function resumeDownload(id) {
+  const item = liveDownloads.get(id);
+  if (item) {
+    try { if (item.canResume()) { item.resume(); return; } } catch {}
+  }
+  const d = downloadById(id);
+  if (!d || !/^https?:/i.test(d.url || '') || d.state === 'progressing') return;
+  downloads = downloads.filter(x => x.id !== id);
+  const t = activeTab();
+  const ses = t ? t.view.webContents.session : session.fromPartition(browserPartition());
+  try { ses.downloadURL(d.url); } catch {}
+  saveDownloads();
+  pushDownloads();
 }
 
 /* =============================================================================
@@ -1443,27 +1593,54 @@ function setupSession(partition) {
   if (readyPartitions.has(partition)) return ses;
   readyPartitions.add(partition);
   try { ses.protocol.handle('zaalis', zaalisProtocolHandler); } catch {}
+  try { ses.setUserAgent(chromeUserAgent()); } catch {}
   attachDownloads(ses);
   attachPermissions(ses, partition);
+  attachDisplayCapture(ses, partition);
+  attachDeviceChoosers(ses);
   return ses;
 }
 
 // ----- Permissions par site (caméra, micro, géoloc, notifications…) ---------
-// Mémorisées par profil + origine dans permissions.json. L'incognito garde ses
-// choix uniquement en mémoire. Une demande inconnue ouvre un dialogue natif.
+// Même modèle que Chrome : les autorisations sans risque sont accordées
+// d'office, les autres ouvrent une demande « Bloquer / Autoriser » dont le
+// choix peut être mémorisé par profil + origine (permissions.json). Sans
+// mémorisation, l'accord vaut pour la session (« autoriser cette fois »).
+// La navigation privée ne garde ses choix qu'en mémoire.
 let sitePermissions = {};        // "partition|origin|permission" -> allow|deny
-const pendingPermPrompts = new Set();
+
+// Accordées d'office, comme dans Chrome : plein écran, verrouillage du pointeur
+// et du clavier (jeux, visio), écriture dans le presse-papiers, contenu protégé
+// (Widevine : Prime Video, Netflix, Disney+…), choix de la sortie audio et
+// accès au stockage tiers (les cookies tiers restent autorisés, comme Chrome).
+const AUTO_GRANTED_PERMISSIONS = new Set([
+  'fullscreen', 'pointerLock', 'keyboardLock', 'clipboard-sanitized-write',
+  'mediaKeySystem', 'speaker-selection', 'storage-access', 'top-level-storage-access',
+]);
 
 const PERMISSION_LABELS = {
-  media: 'utiliser votre caméra / micro',
-  geolocation: 'accéder à votre position',
+  camera: 'utiliser votre caméra',
+  microphone: 'utiliser votre micro',
+  geolocation: 'connaître votre position',
   notifications: 'afficher des notifications',
-  midi: 'utiliser vos appareils MIDI',
-  midiSysex: 'utiliser vos appareils MIDI (SysEx)',
-  pointerLock: 'masquer le curseur',
-  'clipboard-read': 'lire le presse-papiers',
-  'display-capture': 'capturer votre écran',
+  midi: 'accéder à vos appareils MIDI',
+  midiSysex: 'contrôler et reprogrammer vos appareils MIDI',
+  'clipboard-read': 'voir le texte et les images copiés dans le presse-papiers',
+  'idle-detection': 'savoir quand vous utilisez activement cet appareil',
+  'window-management': 'gérer les fenêtres sur tous vos écrans',
 };
+
+// Libellés courts du popup « informations du site » (barre d'adresse).
+const PERMISSION_NAMES = {
+  camera: 'Caméra', microphone: 'Micro', media: 'Caméra et micro',
+  geolocation: 'Position', notifications: 'Notifications', midi: 'Appareils MIDI',
+  midiSysex: 'Appareils MIDI (SysEx)', 'clipboard-read': 'Presse-papiers',
+  'idle-detection': 'Détection d\'inactivité', 'window-management': 'Gestion des fenêtres',
+};
+function permissionDisplayName(name) {
+  if (name.startsWith('openExternal:')) return 'Ouvrir les liens « ' + name.slice(13) + ': »';
+  return PERMISSION_NAMES[name] || name;
+}
 
 function permissionsFile() { return path.join(dataFolder, 'permissions.json'); }
 function loadSitePermissions() {
@@ -1474,55 +1651,359 @@ function saveSitePermissions() {
   try { fs.writeFileSync(permissionsFile(), JSON.stringify(sitePermissions), 'utf8'); } catch {}
 }
 function originOf(u) { try { return new URL(u).origin; } catch { return ''; } }
+function hostOf(u) { try { return new URL(u).host || String(u); } catch { return String(u || ''); } }
+
+// Contexte de décisions d'une partition (profil, invité ou navigation privée).
+const permissionContexts = new Map();
+function permissionContext(partition) {
+  let ctx = permissionContexts.get(partition);
+  if (ctx) return ctx;
+  const ephemeral = partition === INCOGNITO_PARTITION;
+  const privateStore = Object.create(null);
+  const onceGrants = new Set();                 // « autoriser cette fois »
+  const store = () => (ephemeral ? privateStore : sitePermissions);
+  const key = (origin, name) => partition + '|' + origin + '|' + name;
+  ctx = {
+    partition, ephemeral,
+    pending: new Map(),                         // demandes identiques regroupées
+    decision(origin, name) {
+      const s = store();
+      const v = s[key(origin, name)];
+      if (v === 'allow' || v === 'deny') return v;
+      // Anciennes décisions « media » : valent pour la caméra et le micro.
+      if (name === 'camera' || name === 'microphone') {
+        const legacy = s[key(origin, 'media')];
+        if (legacy === 'allow' || legacy === 'deny') return legacy;
+      }
+      return onceGrants.has(key(origin, name)) ? 'allow' : '';
+    },
+    record(origin, name, allow, remember) {
+      if (remember) {
+        store()[key(origin, name)] = allow ? 'allow' : 'deny';
+        if (!ephemeral) saveSitePermissions();
+      } else if (allow) {
+        onceGrants.add(key(origin, name));
+      }
+    },
+    forgetOnce(origin) {
+      if (!origin) { onceGrants.clear(); return; }
+      for (const k of [...onceGrants]) if (k.startsWith(partition + '|' + origin + '|')) onceGrants.delete(k);
+    },
+  };
+  permissionContexts.set(partition, ctx);
+  return ctx;
+}
+
+function isInternalOrigin(origin) { return String(origin || '').startsWith('zaalis://'); }
+
+// Boîte de dialogue native d'autorisation. Les demandes identiques arrivées
+// pendant qu'elle est ouverte reçoivent la même réponse (au lieu d'un refus).
+// opts.session : l'accord ne vaut que pour la session (jamais mémorisé).
+function askPermission(ctx, origin, names, what, opts) {
+  opts = opts || {};
+  const id = origin + '|' + names.join('+');
+  if (ctx.pending.has(id)) return ctx.pending.get(id);
+  const canRemember = !ctx.ephemeral && !opts.session;
+  const p = (async () => {
+    if (!mainWin) return false;
+    let r;
+    try {
+      r = await dialog.showMessageBox(mainWin, {
+        type: 'question',
+        title: 'zaalis Browser',
+        buttons: ['Bloquer', 'Autoriser'],
+        defaultId: 1, cancelId: 0, noLink: true,
+        message: hostOf(origin) + ' souhaite ' + what + '.',
+        detail: opts.detail || 'Vous pourrez modifier ce choix depuis l\'icône située à gauche de l\'adresse.',
+        checkboxLabel: canRemember ? 'Mémoriser ce choix pour ce site' : undefined,
+        checkboxChecked: canRemember,
+      });
+    } catch { return false; }
+    const allow = r.response === 1;
+    const remember = canRemember && !!r.checkboxChecked;
+    for (const n of names) ctx.record(origin, n, allow, remember);
+    return allow;
+  })();
+  ctx.pending.set(id, p);
+  p.finally(() => ctx.pending.delete(id));
+  return p;
+}
+
+function mediaPermissionNames(types) {
+  const names = [];
+  if (types && types.includes('video')) names.push('camera');
+  if (types && types.includes('audio')) names.push('microphone');
+  return names.length ? names : ['camera', 'microphone'];
+}
+
+function joinLabels(names) {
+  if (names.length === 2 && names.includes('camera') && names.includes('microphone')) return 'utiliser votre caméra et votre micro';
+  return names.map(n => PERMISSION_LABELS[n] || ('utiliser : ' + n)).join(' et ');
+}
+
+// ----- Liens vers des applications (mailto:, tel:, zoommtg:, msteams:…) -----
+// Chrome les confie au système après confirmation. Les schémas gérés par le
+// navigateur lui-même ne sortent jamais ; ceux connus pour être dangereux
+// (shell:, ms-msdt:, search-ms:…) sont refusés comme dans Chrome.
+const BROWSER_SCHEMES = new Set([
+  'http', 'https', 'about', 'blob', 'data', 'file', 'filesystem', 'javascript',
+  'zaalis', 'chrome', 'chrome-extension', 'devtools', 'view-source', 'ws', 'wss', 'ftp',
+]);
+const BLOCKED_EXTERNAL_SCHEMES = new Set([
+  'afp', 'disk', 'disks', 'hcp', 'ie.http', 'ms-help', 'nntp', 'res', 'shell',
+  'vbscript', 'vnd.ms.radio', 'ms-msdt', 'search-ms', 'search', 'ms-officecmd',
+  'ms-cxh', 'ms-cxh-full', 'its', 'mk', 'ms-its', 'mhtml', 'cdl',
+]);
+function urlScheme(u) {
+  const m = /^([a-z][a-z0-9+.\-]*):/i.exec(String(u || '').trim());
+  return m ? m[1].toLowerCase() : '';
+}
+function isExternalAppUrl(u) {
+  const s = urlScheme(u);
+  return !!s && !BROWSER_SCHEMES.has(s);
+}
+
+function confirmOpenExternal(ctx, origin, externalUrl) {
+  const scheme = urlScheme(externalUrl);
+  if (!scheme || BROWSER_SCHEMES.has(scheme) || BLOCKED_EXTERNAL_SCHEMES.has(scheme)) return Promise.resolve(false);
+  const name = 'openExternal:' + scheme;
+  const prior = origin ? ctx.decision(origin, name) : '';
+  if (prior === 'allow') return Promise.resolve(true);
+  if (prior === 'deny') return Promise.resolve(false);
+  if (!mainWin) return Promise.resolve(false);
+  const id = origin + '|' + name;
+  if (ctx.pending.has(id)) return ctx.pending.get(id);
+  const p = (async () => {
+    let r;
+    try {
+      r = await dialog.showMessageBox(mainWin, {
+        type: 'question',
+        title: 'zaalis Browser',
+        buttons: ['Annuler', 'Ouvrir'],
+        defaultId: 1, cancelId: 0, noLink: true,
+        message: 'Ouvrir l\'application associée aux liens « ' + scheme + ': » ?',
+        detail: (origin ? hostOf(origin) + ' souhaite ouvrir cette application.\n' : '') +
+                String(externalUrl).slice(0, 200),
+        checkboxLabel: origin && !ctx.ephemeral
+          ? 'Toujours autoriser ' + hostOf(origin) + ' à ouvrir ce type de lien' : undefined,
+        checkboxChecked: false,
+      });
+    } catch { return false; }
+    const allow = r.response === 1;
+    if (allow && r.checkboxChecked && origin) ctx.record(origin, name, true, true);
+    return allow;
+  })();
+  ctx.pending.set(id, p);
+  p.finally(() => ctx.pending.delete(id));
+  return p;
+}
+
+// Ouvre un lien d'application après confirmation (clic sur mailto:, etc.).
+function openExternalFromPage(wc, partition, targetUrl) {
+  const origin = originOf(wc && !wc.isDestroyed() ? wc.getURL() : '') || '';
+  confirmOpenExternal(permissionContext(partition), origin, targetUrl).then(ok => {
+    if (ok) shell.openExternal(targetUrl).catch(() => {});
+  });
+}
 
 function attachPermissions(ses, partition) {
-  // L'incognito ne réutilise et ne persiste jamais une autorisation. Les
-  // profils normaux disposent chacun de leur propre espace de décisions.
-  const ephemeral = partition === INCOGNITO_PARTITION;
-  const permissionStore = ephemeral ? Object.create(null) : sitePermissions;
-  const permissionKey = (origin, permission) => partition + '|' + origin + '|' + permission;
-  // Vérification synchrone (utilisée par certaines API) : suit la mémoire.
+  const ctx = permissionContext(partition);
+  const isLocal = o => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(o);
+
+  // Vérification synchrone (enumerateDevices, Notification.permission…).
   // Le micro des pages internes (zaalis://home) sert au mode vocal : c'est
   // notre propre UI, pas un site — accord direct, sans dialogue site web.
-  const internalMic = (origin, permission) =>
-    (permission === 'media' || permission === 'audioCapture') &&
-    String(origin || '').startsWith('zaalis://');
-  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => {
-    if (internalMic(requestingOrigin, permission)) return true;
-    const key = permissionKey(requestingOrigin || '', permission);
-    if (permissionStore[key] === 'allow') return true;
-    if (permissionStore[key] === 'deny')  return false;
-    // Autorise d'office les permissions non sensibles courantes.
-    return ['fullscreen', 'clipboard-sanitized-write', 'pointerLock'].includes(permission);
+  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin, details) => {
+    const origin = originOf(requestingOrigin || (details && details.requestingUrl) || '') || String(requestingOrigin || '');
+    if (isInternalOrigin(origin)) return permission === 'media' || AUTO_GRANTED_PERMISSIONS.has(permission);
+    if (AUTO_GRANTED_PERMISSIONS.has(permission)) return true;
+    // WebHID / WebSerial / WebUSB : le sélecteur d'appareil fait office de
+    // consentement (comme Chrome), réservé aux contextes sécurisés.
+    if (permission === 'hid' || permission === 'serial' || permission === 'usb') {
+      return /^https:/i.test(origin) || isLocal(origin);
+    }
+    if (permission === 'media') {
+      const t = details && details.mediaType;
+      const names = t === 'audio' ? ['microphone'] : t === 'video' ? ['camera'] : ['camera', 'microphone'];
+      return names.every(n => ctx.decision(origin, n) === 'allow');
+    }
+    return ctx.decision(origin, permission) === 'allow';
   });
 
-  ses.setPermissionRequestHandler((_wc, permission, callback, details) => {
-    const origin = originOf(details && (details.requestingUrl || '')) || '';
-    if (internalMic(origin, permission)) return callback(true);
-    // Non sensible : accord direct (comportement navigateur classique).
-    if (['fullscreen', 'clipboard-sanitized-write', 'pointerLock'].includes(permission)) return callback(true);
-    const key = permissionKey(origin, permission);
-    if (permissionStore[key] === 'allow') return callback(true);
-    if (permissionStore[key] === 'deny')  return callback(false);
-    if (!mainWin || !origin) return callback(false);
-    // Évite d'empiler plusieurs dialogues identiques.
-    if (pendingPermPrompts.has(key)) return callback(false);
-    pendingPermPrompts.add(key);
-    const what = PERMISSION_LABELS[permission] || ('utiliser : ' + permission);
-    dialog.showMessageBox(mainWin, {
-      type: 'question',
-      buttons: ['Bloquer', 'Autoriser'],
-      defaultId: 0, cancelId: 0,
-      message: origin + '\nsouhaite ' + what + '.',
-      detail: 'Votre choix sera mémorisé pour ce site.',
-    }).then(r => {
-      pendingPermPrompts.delete(key);
-      const allow = r.response === 1;
-      permissionStore[key] = allow ? 'allow' : 'deny';
-      if (!ephemeral) saveSitePermissions();
-      callback(allow);
-    }).catch(() => { pendingPermPrompts.delete(key); callback(false); });
+  ses.setPermissionRequestHandler((wc, permission, callback, details) => {
+    details = details || {};
+    const origin = originOf(details.requestingUrl || '') || '';
+    let answered = false;
+    const done = ok => { if (answered) return; answered = true; try { callback(!!ok); } catch {} };
+
+    if (isInternalOrigin(origin)) return done(permission === 'media' || AUTO_GRANTED_PERMISSIONS.has(permission));
+    if (AUTO_GRANTED_PERMISSIONS.has(permission)) return done(true);
+    if (permission === 'openExternal') {
+      confirmOpenExternal(ctx, origin, details.externalURL).then(done, () => done(false));
+      return;
+    }
+    // display-capture est arbitré par le sélecteur (setDisplayMediaRequestHandler).
+    if (permission === 'display-capture') return done(true);
+    if (permission === 'unknown' || !origin || !/^https?:/i.test(origin)) return done(false);
+    // Comme Chrome : pas de notifications en navigation privée.
+    if (permission === 'notifications' && ctx.ephemeral) return done(false);
+
+    if (permission === 'fileSystem') {
+      // Un fichier choisi dans le sélecteur est lisible d'office ; modifier un
+      // fichier ou parcourir un dossier demande confirmation (pour la session).
+      if (details.fileAccessType !== 'writable' && !details.isDirectory) return done(true);
+      const target = details.filePath ? path.basename(details.filePath) : 'ce fichier';
+      const writable = details.fileAccessType === 'writable';
+      const name = 'fileSystem:' + (writable ? 'write:' : 'read:') + (details.filePath || '');
+      if (ctx.decision(origin, name) === 'allow') return done(true);
+      const what = writable
+        ? (details.isDirectory ? 'modifier les fichiers du dossier « ' + target + ' »'
+                               : 'enregistrer les modifications dans « ' + target + ' »')
+        : 'afficher les fichiers du dossier « ' + target + ' »';
+      askPermission(ctx, origin, [name], what, { session: true, detail: details.filePath || '' })
+        .then(done, () => done(false));
+      return;
+    }
+
+    const names = permission === 'media' ? mediaPermissionNames(details.mediaTypes) : [permission];
+    if (names.some(n => ctx.decision(origin, n) === 'deny')) return done(false);
+    const missing = names.filter(n => ctx.decision(origin, n) !== 'allow');
+    if (!missing.length) return done(true);
+    askPermission(ctx, origin, missing, joinLabels(missing)).then(done, () => done(false));
   });
+}
+
+// ----- Partage d'écran (getDisplayMedia : Meet, Teams, Discord…) -----------
+// Sans ce gestionnaire, Electron refuse tout partage d'écran. Comme Chrome, on
+// propose l'écran entier, une fenêtre ou un onglet, avec l'audio du système.
+function attachDisplayCapture(ses, partition) {
+  ses.setDisplayMediaRequestHandler((request, callback) => {
+    let answered = false;
+    const reply = s => { if (answered) return; answered = true; try { callback(s || null); } catch {} };
+    pickDisplaySource(request, partition).then(reply, () => reply(null));
+  });
+}
+
+async function pickDisplaySource(request, partition) {
+  if (!mainWin || !request.videoRequested) return null;
+  const origin = request.securityOrigin || (request.frame && request.frame.url) || '';
+  let sources = [];
+  try {
+    sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 0, height: 0 } });
+  } catch {}
+  const screens = sources.filter(s => s.id.startsWith('screen:'));
+  const windows = sources.filter(s => s.id.startsWith('window:') && s.name).slice(0, 10);
+  const incognito = partition === INCOGNITO_PARTITION;
+  const shareableTabs = tabs.filter(t => !!t.incognito === incognito &&
+    isWebPageUrl(t.view.webContents.getURL()) &&
+    (!request.frame || t.view.webContents.mainFrame !== request.frame)).slice(0, 8);
+
+  const choices = [];
+  screens.forEach((s, i) => choices.push({
+    label: screens.length > 1 ? 'Écran entier ' + (i + 1) : 'Écran entier', video: s,
+  }));
+  windows.forEach(s => choices.push({ label: 'Fenêtre : ' + s.name.slice(0, 80), video: s }));
+  shareableTabs.forEach(t => choices.push({
+    label: 'Onglet : ' + (t.view.webContents.getTitle() || t.view.webContents.getURL()).slice(0, 80),
+    frame: t.view.webContents.mainFrame,
+  }));
+  if (!choices.length) return null;
+
+  const withAudio = request.audioRequested && process.platform !== 'darwin';
+  const r = await dialog.showMessageBox(mainWin, {
+    type: 'none',
+    title: 'zaalis Browser',
+    message: origin ? hostOf(origin) + ' souhaite partager le contenu de votre écran.' : 'Partager votre écran',
+    detail: 'Choisissez ce que vous voulez partager :',
+    buttons: [...choices.map(c => c.label), 'Annuler'],
+    cancelId: choices.length, defaultId: 0, noLink: false,
+    checkboxLabel: withAudio ? 'Partager aussi l\'audio' : undefined,
+    checkboxChecked: withAudio,
+  });
+  const c = choices[r.response];
+  if (!c) return null;
+  const audio = withAudio && r.checkboxChecked;
+  if (c.frame) {
+    if (c.frame.isDestroyed && c.frame.isDestroyed()) return null;
+    return audio ? { video: c.frame, audio: c.frame } : { video: c.frame };
+  }
+  return audio ? { video: c.video, audio: 'loopback' } : { video: c.video };
+}
+
+// ----- Sélecteurs d'appareils (Bluetooth, HID, USB, série, clés FIDO) -------
+// Comme Chrome, le site ne voit un appareil que si l'utilisateur le choisit.
+// Electron choisirait sinon automatiquement le premier appareil Bluetooth.
+async function chooseFromList(message, items) {
+  if (!mainWin) return null;
+  if (!items.length) {
+    dialog.showMessageBox(mainWin, {
+      type: 'info', title: 'zaalis Browser', message,
+      detail: 'Aucun appareil compatible n\'a été trouvé.', buttons: ['OK'],
+    }).catch(() => {});
+    return null;
+  }
+  const shown = items.slice(0, 12);
+  try {
+    const r = await dialog.showMessageBox(mainWin, {
+      type: 'none', title: 'zaalis Browser', message,
+      buttons: [...shown.map(i => i.label), 'Annuler'],
+      cancelId: shown.length, defaultId: 0, noLink: false,
+    });
+    return shown[r.response] ? shown[r.response].id : null;
+  } catch { return null; }
+}
+
+function frameHost(frame) {
+  try { return frame && frame.url ? hostOf(frame.url) : 'Ce site'; } catch { return 'Ce site'; }
+}
+
+function attachDeviceChoosers(ses) {
+  ses.on('select-hid-device', (event, details, callback) => {
+    event.preventDefault();
+    const items = (details.deviceList || []).map(d => ({ id: d.deviceId, label: d.name || ('Appareil HID ' + d.vendorId + ':' + d.productId) }));
+    chooseFromList(frameHost(details.frame) + ' souhaite se connecter à un appareil HID', items)
+      .then(id => { try { id ? callback(id) : callback(); } catch {} });
+  });
+  ses.on('select-usb-device', (event, details, callback) => {
+    event.preventDefault();
+    const items = (details.deviceList || []).map(d => ({ id: d.deviceId, label: d.productName || d.manufacturerName || ('Appareil USB ' + d.vendorId + ':' + d.productId) }));
+    chooseFromList(frameHost(details.frame) + ' souhaite se connecter à un appareil USB', items)
+      .then(id => { try { id ? callback(id) : callback(); } catch {} });
+  });
+  ses.on('select-serial-port', (event, portList, wc, callback) => {
+    event.preventDefault();
+    const items = (portList || []).map(p => ({ id: p.portId, label: p.displayName ? p.displayName + ' (' + p.portName + ')' : p.portName }));
+    const host = wc && !wc.isDestroyed() ? hostOf(wc.getURL()) : 'Ce site';
+    chooseFromList(host + ' souhaite se connecter à un port série', items)
+      .then(id => { try { callback(id || ''); } catch {} });
+  });
+  ses.on('select-webauthn-account', (event, details, callback) => {
+    event.preventDefault();
+    const items = (details.accounts || []).map(a => ({ id: a.credentialId, label: a.displayName || a.userName || a.name || 'Compte' }));
+    chooseFromList('Choisissez un compte pour ' + (details.relyingPartyId || 'ce site'), items)
+      .then(id => { try { id ? callback(id) : callback(); } catch {} });
+  });
+}
+
+// Bluetooth : la liste des appareils arrive au fil de la découverte. On la
+// laisse se remplir quelques secondes puis on demande à l'utilisateur.
+function attachBluetoothChooser(wc) {
+  let pendingCallback = null, latest = [], timer = null;
+  wc.on('select-bluetooth-device', (event, devices, callback) => {
+    event.preventDefault();
+    latest = devices || [];
+    if (pendingCallback) return;
+    pendingCallback = callback;
+    timer = setTimeout(() => {
+      const cb = pendingCallback;
+      pendingCallback = null; timer = null;
+      if (wc.isDestroyed()) return;
+      const items = latest.map(d => ({ id: d.deviceId, label: d.deviceName || ('Appareil ' + d.deviceId) }));
+      chooseFromList(hostOf(wc.getURL()) + ' souhaite s\'associer à un appareil Bluetooth', items)
+        .then(id => { try { cb(id || ''); } catch {} });
+    }, 3500);
+  });
+  wc.once('destroyed', () => { if (timer) clearTimeout(timer); });
 }
 
 // ----- Informations du site / cookies (popup de la barre d'adresse) --------
@@ -1541,7 +2022,10 @@ function siteInfoForActiveTab() {
   const permissions = Object.entries(tab.incognito ? {} : sitePermissions)
     .filter(([key]) => key.startsWith(prefix))
     .map(([key, value]) => ({ permission: key.slice(prefix.length), value }))
-    .filter(x => x.value === 'allow' || x.value === 'deny');
+    .filter(x => (x.value === 'allow' || x.value === 'deny') &&
+                 !x.permission.startsWith('fileSystem:') && x.permission !== 'popups')
+    .map(x => ({ ...x, label: permissionDisplayName(x.permission) }));
+  const popupsAllowed = permissionContext(partition).decision(origin, 'popups') === 'allow';
 
   return wc.session.cookies.get({ url: pageUrl }).then(cookies => ({
     available: true,
@@ -1555,8 +2039,9 @@ function siteInfoForActiveTab() {
       session: !!c.session, sameSite: String(c.sameSite || 'unspecified'),
     })),
     permissions,
+    popupsAllowed,
   })).catch(() => ({ available: true, origin, host: parsed.hostname,
-    secure: parsed.protocol === 'https:', incognito: !!tab.incognito, cookies: [], permissions }));
+    secure: parsed.protocol === 'https:', incognito: !!tab.incognito, cookies: [], permissions, popupsAllowed }));
 }
 
 function sendSiteInfo(sender) {
@@ -1583,6 +2068,18 @@ function clearActiveSiteData(sender) {
   });
 }
 
+// Pop-ups et redirections pour le site actif (popup « informations du site »).
+function setActiveSitePopups(allow, sender) {
+  const tab = activeTab();
+  const wc = tab && tab.view && tab.view.webContents;
+  const origin = wc ? originOf(wc.getURL()) : '';
+  if (!origin || origin === 'null' || !/^https?:/.test(origin)) return;
+  permissionContext(tab.incognito ? INCOGNITO_PARTITION : browserPartition())
+    .record(origin, 'popups', allow, true);
+  try { sender.send('zaalis:message', { type: 'toast', text: allow ? 'Pop-ups autorisées sur ce site.' : 'Pop-ups bloquées sur ce site.' }); } catch {}
+  sendSiteInfo(sender);
+}
+
 function resetActiveSitePermissions(sender) {
   const tab = activeTab();
   const wc = tab && tab.view && tab.view.webContents;
@@ -1594,6 +2091,7 @@ function resetActiveSitePermissions(sender) {
     for (const key of Object.keys(sitePermissions)) if (key.startsWith(prefix)) delete sitePermissions[key];
     saveSitePermissions();
   }
+  permissionContext(tab.incognito ? INCOGNITO_PARTITION : browserPartition()).forgetOnce(origin);
   try { sender.send('zaalis:message', { type: 'toast', text: 'Autorisations de ce site réinitialisées.' }); } catch {}
   sendSiteInfo(sender);
 }
@@ -1727,34 +2225,100 @@ function reloadFresh(wc) {
   try { wc.reloadIgnoringCache(); } catch {}
 }
 
+// Bloqueur de pop-ups façon Chrome : une page ne peut ouvrir une fenêtre ou un
+// onglet qu'en réponse à une action de l'utilisateur (clic, touche, toucher)
+// datant de moins de 5 s. Les sites autorisés dans « informations du site »
+// (autorisation « popups ») et les clics sur des liens restent libres.
+const POPUP_GESTURE_MS = 5000;
+const GESTURE_INPUTS = new Set(['mouseDown', 'mouseUp', 'rawKeyDown', 'keyDown', 'char',
+  'touchStart', 'touchEnd', 'gestureTap', 'gestureTapDown']);
+
+function popupAllowed(tab, details) {
+  // Ctrl+clic / clic molette : toujours une action explicite sur un lien.
+  if (details.disposition === 'background-tab') return true;
+  const recentGesture = Date.now() - (tab.lastGestureAt || 0) < POPUP_GESTURE_MS;
+  const origin = originOf(tab.view.webContents.getURL());
+  const ctx = permissionContext(tab.incognito ? INCOGNITO_PARTITION : browserPartition());
+  const siteChoice = origin ? ctx.decision(origin, 'popups') : '';
+  if (siteChoice === 'allow') return true;
+  if (siteChoice === 'deny' || !recentGesture) return false;
+  // Réglage « Bloquer les pop-ups » : seules les fenêtres scriptées dimensionnées
+  // (window.open avec des options) sont refusées, les liens target=_blank passent.
+  if (settings.blockPopups && details.disposition === 'new-window') return false;
+  return true;
+}
+
+function notifyPopupBlocked(tab) {
+  const now = Date.now();
+  if (now - (tab.lastPopupToastAt || 0) < 4000) return;
+  tab.lastPopupToastAt = now;
+  if (chromeView && activeTab() === tab) {
+    chromeView.webContents.send('zaalis:message', {
+      type: 'toast', text: 'Pop-up bloquée sur ' + hostOf(tab.view.webContents.getURL()),
+    });
+  }
+}
+
+// Position d'insertion d'un onglet ouvert depuis un autre : juste à droite de
+// son ouvreur (après ses autres « enfants »), comme Chrome.
+function insertIndexFor(openerId) {
+  const oi = tabs.findIndex(t => t.id === openerId);
+  if (oi < 0) return tabs.length;
+  let i = oi + 1;
+  while (i < tabs.length && tabs[i].openerId === openerId) i++;
+  // Les onglets épinglés restent groupés en tête de la barre.
+  const firstUnpinned = tabs.findIndex(t => !t.pinned);
+  return Math.max(i, firstUnpinned < 0 ? tabs.length : firstUnpinned);
+}
+
+function consoleLevel(level) {
+  if (typeof level === 'string') return ({ debug: 'log', verbose: 'log', info: 'info', warning: 'warn', error: 'error' })[level] || 'log';
+  return ['log', 'info', 'warn', 'error'][level] || 'log';
+}
+
+// opts : { incognito, openerId, webContents (pop-up créée par la page, à
+// adopter telle quelle), loadOptions (referrer / données POST d'un lien) }.
 function createTab(rawUrl, activate, opts) {
   opts = opts || {};
   const incognito = !!opts.incognito;
   const preload = path.join(__dirname, 'preload-content.js');
   const partition = incognito ? INCOGNITO_PARTITION : browserPartition();
   setupSession(partition);   // protocole zaalis:// + téléchargements + permissions
-  const view = new WebContentsView({
-    webPreferences: {
-      preload,
-      partition,
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webviewTag: false,
-      spellcheck: true,
-      // Les WebContentsView invisibles sont sinon mis en veille : les apps
-      // Google et les tableaux de bord ne recoivent plus leurs mises a jour
-      // temps reel tant que l'onglet est cache.
-      backgroundThrottling: false,
-    },
-  });
+  const view = opts.webContents
+    // Pop-up ouverte par window.open : on adopte le WebContents créé par
+    // Chromium pour conserver window.opener (connexion Google/Apple/PayPal,
+    // paiements 3-D Secure…). Il hérite des préférences de l'onglet ouvreur.
+    ? new WebContentsView({ webContents: opts.webContents })
+    : new WebContentsView({
+        webPreferences: {
+          preload,
+          partition,
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+          webviewTag: false,
+          spellcheck: true,
+          // Les WebContentsView invisibles sont sinon mis en veille : les apps
+          // Google et les tableaux de bord ne recoivent plus leurs mises a jour
+          // temps reel tant que l'onglet est cache.
+          backgroundThrottling: false,
+        },
+      });
   view.setBackgroundColor('#00000000');
 
   const tab = {
     id: nextId++, view, loading: false, consoleBuf: [], pinned: false, incognito,
     loadedOnce: false, lastBackgroundAt: 0, lastFreshReloadAt: 0,
+    openerId: opts.openerId || 0, lastGestureAt: 0, closing: false,
   };
-  tabs.push(tab);
+  if (opts.openerId) {
+    const activeId = activeTab() ? activeTab().id : -1;
+    tabs.splice(insertIndexFor(opts.openerId), 0, tab);
+    active = tabs.findIndex(t => t.id === activeId);            // garde l'onglet actif
+    makeSplitAdjacent();                                         // la paire reste collée
+  } else {
+    tabs.push(tab);
+  }
 
   const wc = view.webContents;
 
@@ -1767,7 +2331,7 @@ function createTab(rawUrl, activate, opts) {
       const message = event.message ?? legacyMessage;
       const line = event.lineNumber ?? legacyLine;
       const sourceId = event.sourceId ?? legacySourceId;
-      const lv = ['log', 'info', 'warn', 'error'][level] || 'log';
+      const lv = consoleLevel(level);
       const src = sourceId ? String(sourceId).split('/').pop() : '';
       tab.consoleBuf.push({
         level: lv,
@@ -1779,22 +2343,74 @@ function createTab(rawUrl, activate, opts) {
     } catch {}
   });
 
-  // Popups -> nouvel onglet
-  wc.setWindowOpenHandler(({ url }) => {
-    if (settings.blockPopups) return { action: 'deny' };
-    const target = allowedPageUrl(url, false);
-    if (target) createTab(target, true);
-    return { action: 'deny' };
+  // Dernière action de l'utilisateur dans la page (pour le bloqueur de pop-ups).
+  // before-mouse-event / before-input-event couvrent aussi les iframes d'autres
+  // sites (bouton « Se connecter avec Google », PayPal, lecteurs intégrés) ;
+  // input-event ajoute le toucher sur le document principal.
+  const noteGesture = (_e, input) => { if (input && GESTURE_INPUTS.has(input.type)) tab.lastGestureAt = Date.now(); };
+  wc.on('before-mouse-event', noteGesture);
+  wc.on('before-input-event', noteGesture);
+  wc.on('input-event', noteGesture);
+
+  // Pop-ups et liens target=_blank -> nouvel onglet, en conservant le lien
+  // avec la page d'origine (window.opener), indispensable aux connexions
+  // « Se connecter avec Google », aux paiements et aux lecteurs intégrés.
+  wc.setWindowOpenHandler((details) => {
+    const url = String(details.url || '');
+    if (isExternalAppUrl(url)) {
+      openExternalFromPage(wc, partition, url);
+      return { action: 'deny' };
+    }
+    const popupUrlOk = url === '' || url === 'about:blank' || /^(https?|blob):/i.test(url);
+    if (!popupUrlOk) return { action: 'deny' };
+    if (!popupAllowed(tab, details)) { notifyPopupBlocked(tab); return { action: 'deny' }; }
+    const foreground = details.disposition !== 'background-tab';
+    return {
+      action: 'allow',
+      outlivesOpener: true,
+      createWindow: (options) => {
+        if (options && options.webContents) {
+          return createTab('', foreground, { incognito, openerId: tab.id, webContents: options.webContents }).view.webContents;
+        }
+        // Lien rel=noopener : Chromium ne crée pas la page, on la charge nous-mêmes.
+        const loadOptions = {};
+        if (details.referrer && details.referrer.url) loadOptions.httpReferrer = details.referrer;
+        if (details.postBody && details.postBody.data) {
+          loadOptions.postData = details.postBody.data;
+          if (details.postBody.contentType) loadOptions.extraHeaders = 'Content-Type: ' + details.postBody.contentType;
+        }
+        return createTab(url, foreground, { incognito, openerId: tab.id, loadOptions }).view.webContents;
+      },
+    };
   });
+
+  attachBluetoothChooser(wc);
 
   wc.on('did-start-loading', () => { tab.loading = true;  pushState(); });
   wc.on('did-stop-loading',  () => { tab.loading = false; tab.loadedOnce = true; pushState(); });
+  wc.on('did-finish-load',   () => { tab.loadedAt = Date.now(); });
   wc.on('page-title-updated',   () => pushState());
-  wc.on('did-navigate',         (_e, u) => { tab.consoleBuf = []; pushHistory(u, wc.getTitle()); pushState(); scheduleSaveOpenTabs(); });
+  wc.on('did-navigate',         (_e, u) => {
+    tab.consoleBuf = [];
+    pushHistory(u, wc.getTitle()); pushState(); scheduleSaveOpenTabs();
+    if (findBarOpen && findTabId === tab.id && findView) {
+      findNeedsNewSession = true;
+      findView.webContents.send('zaalis:message', { type: 'findResult', active: 0, total: 0 });
+    }
+  });
   wc.on('did-navigate-in-page', () => { pushState(); scheduleSaveOpenTabs(); });
 
   // Garde de navigation (liens/JS de la page) : Safe Browsing + mise à niveau HTTPS.
   wc.on('will-navigate', (event, targetUrl) => {
+    // mailto:, tel:, zoommtg:… : confiés à l'application du système après
+    // confirmation, au lieu d'être ignorés silencieusement.
+    if (isExternalAppUrl(targetUrl)) {
+      event.preventDefault();
+      openExternalFromPage(wc, partition, targetUrl);
+      return;
+    }
+    // blob: = fichier généré par la page elle-même (PDF, facture, export…).
+    if (/^blob:/i.test(targetUrl)) return;
     const target = allowedPageUrl(targetUrl, isInternal(wc.getURL()));
     if (!target) { event.preventDefault(); return; }
     const verdict = safeBrowsingVerdict(targetUrl);
@@ -1829,38 +2445,58 @@ function createTab(rawUrl, activate, opts) {
     });
   });
 
+  // Onglet planté (mémoire saturée, plantage du moteur) : page « Oups » avec
+  // un bouton pour recharger, comme l'onglet triste de Chrome.
+  wc.on('render-process-gone', (_e, details) => {
+    if (!details || details.reason === 'clean-exit' || wc.isDestroyed()) return;
+    if (htmlFullscreenTabId === tab.id) { htmlFullscreenTabId = null; layoutAll(); }
+    const lastUrl = wc.getURL();
+    const reason = details.reason === 'oom' ? 'La mémoire disponible était insuffisante pour afficher cette page.'
+                 : 'Un problème est survenu lors de l\'affichage de cette page.';
+    const html = errorPageHtml(lastUrl, 0, '', ['RESULT_CODE_' + String(details.reason || 'crashed').toUpperCase().replace(/-/g, '_'),
+      'Oups, la page a planté', reason + ' Cliquez sur « Réessayer » pour la recharger.']);
+    setTimeout(() => {
+      if (wc.isDestroyed()) return;
+      try { wc.loadURL('data:text/html;charset=utf-8;base64,' + Buffer.from(html, 'utf8').toString('base64'),
+        isWebPageUrl(lastUrl) ? { baseURLForDataURL: lastUrl } : undefined); } catch {}
+    }, 0);
+  });
+
+  // Plein écran HTML5 (bouton plein écran de YouTube, Prime Video, Netflix…).
+  wc.on('enter-html-full-screen', () => {
+    htmlFullscreenTabId = tab.id;
+    if (activeTab() !== tab) selectTab(tab.id);
+    if (findBarOpen) closeFindBar();
+    layoutAll();
+  });
+  wc.on('leave-html-full-screen', () => {
+    if (htmlFullscreenTabId === tab.id) htmlFullscreenTabId = null;
+    layoutAll();
+    pushState();
+  });
+
+  // Ctrl + molette : zoom, comme Chrome.
+  wc.on('zoom-changed', (_e, direction) => {
+    setZoomPct((settings.zoomPct || 100) + (direction === 'in' ? 10 : -10));
+  });
+
+  // Résultats de la recherche dans la page (Ctrl+F).
+  wc.on('found-in-page', (_e, result) => {
+    if (findView && activeTab() === tab && result) {
+      findView.webContents.send('zaalis:message', {
+        type: 'findResult', active: result.activeMatchOrdinal || 0, total: result.matches || 0,
+      });
+    }
+  });
+
+  // Une page peut se fermer elle-même (window.close() d'une pop-up de connexion).
+  wc.once('destroyed', () => {
+    if (!tab.closing && tabs.includes(tab)) removeTabEntry(tab);
+  });
+
   wc.on('context-menu', (event, params) => {
     if (!settings.contextMenus) { event.preventDefault(); return; }
-    const items = [];
-    // IA : résumé/chat sur la page courante via zaalis labs ide.
-    items.push({ label: 'Demander à l\'IA — résumé de la page', click: () => askAiAboutPage() });
-    if (!isInternal(wc.getURL())) {
-      items.push({ label: 'Traduire la page en français', click: () => translatePage('français') });
-    }
-    items.push({ type: 'separator' });
-    if (params.linkURL) {
-      items.push({ label: 'Ouvrir dans un nouvel onglet', click: () => createTab(params.linkURL, true) });
-      items.push({ label: 'Copier l\'adresse du lien',    click: () => require('electron').clipboard.writeText(params.linkURL) });
-      items.push({ type: 'separator' });
-    }
-    if (params.selectionText) {
-      items.push({ label: 'Copier', role: 'copy' });
-      items.push({ type: 'separator' });
-    }
-    items.push({ label: 'Reculer',   enabled: wc.navigationHistory.canGoBack(),    click: () => wc.navigationHistory.goBack() });
-    items.push({ label: 'Avancer',   enabled: wc.navigationHistory.canGoForward(), click: () => wc.navigationHistory.goForward() });
-    items.push({ label: 'Actualiser', click: () => reloadFresh(wc) });
-    items.push({ type: 'separator' });
-    items.push({ label: tab.pinned ? 'Détacher l\'onglet' : 'Épingler l\'onglet', click: () => togglePinTab(tab.id) });
-    items.push({ label: 'Installer comme application…', click: () => installAsApp(tab.id) });
-    if (settings.devTools) {
-      items.push({ type: 'separator' });
-      items.push({ label: 'Inspecter l\'élément', click: () => wc.inspectElement(params.x, params.y) });
-      items.push({ label: wc.isDevToolsOpened() ? 'Fermer les outils de développement' : 'Outils de développement',
-                  accelerator: 'Alt+Cmd+I',
-                  click: () => { wc.isDevToolsOpened() ? wc.closeDevTools() : wc.openDevTools({ mode: 'detach' }); } });
-    }
-    Menu.buildFromTemplate(items).popup();
+    showPageContextMenu(tab, params);
   });
 
   // Injecte le thème avant chaque navigation (comme AddScriptToExecuteOnDocumentCreated).
@@ -1886,11 +2522,190 @@ function createTab(rawUrl, activate, opts) {
   if (chromeView) { mainWin.contentView.addChildView(chromeView); }
   if (panelView && panelOpen) { mainWin.contentView.addChildView(panelView); }
   if (aiPanelView && aiPanelOpen) { mainWin.contentView.addChildView(aiPanelView); }
+  if (findView) { mainWin.contentView.addChildView(findView); }
 
-  guardedLoad(wc, rawUrl && rawUrl.length ? resolveQuery(rawUrl) : HOME_URL);
+  if (!opts.webContents) {
+    // blob: = document généré par la page ouvreuse (PDF, facture…).
+    if (opts.loadOptions && /^blob:/i.test(rawUrl)) wc.loadURL(rawUrl, opts.loadOptions).catch(() => {});
+    else if (opts.loadOptions) guardedLoad(wc, rawUrl, opts.loadOptions);
+    else guardedLoad(wc, rawUrl && rawUrl.length ? resolveQuery(rawUrl) : HOME_URL);
+  }
 
   if (activate) selectTab(tab.id);
   else { layoutAll(); pushState(); scheduleSaveOpenTabs(); }
+  return tab;
+}
+
+// ----- Menu contextuel des pages (équivalent de celui de Chrome) -----------
+const ACCEL = process.platform === 'darwin'
+  ? { back: 'Cmd+[', fwd: 'Cmd+]', reload: 'Cmd+R', save: 'Cmd+S', print: 'Cmd+P', source: 'Alt+Cmd+U', inspect: 'Alt+Cmd+I', undo: 'Cmd+Z', redo: 'Shift+Cmd+Z', cut: 'Cmd+X', copy: 'Cmd+C', paste: 'Cmd+V', pastePlain: 'Shift+Alt+Cmd+V', all: 'Cmd+A' }
+  : { back: 'Alt+Left', fwd: 'Alt+Right', reload: 'Ctrl+R', save: 'Ctrl+S', print: 'Ctrl+P', source: 'Ctrl+U', inspect: 'Ctrl+Shift+I', undo: 'Ctrl+Z', redo: 'Ctrl+Y', cut: 'Ctrl+X', copy: 'Ctrl+C', paste: 'Ctrl+V', pastePlain: 'Ctrl+Shift+V', all: 'Ctrl+A' };
+
+const SEARCH_ENGINE_NAMES = { google: 'Google', bing: 'Bing', duckduckgo: 'DuckDuckGo', brave: 'Brave Search' };
+
+// Enregistre une ressource (lien, image, vidéo) en demandant l'emplacement.
+function saveResourceAs(wc, url) {
+  if (!url || wc.isDestroyed()) return;
+  saveAsRequests.add(url);
+  try { wc.downloadURL(url); } catch { saveAsRequests.delete(url); }
+}
+
+// Enregistrer la page sous… (Ctrl+S) : page web complète, comme Chrome.
+async function savePageAs(wc) {
+  if (!wc || wc.isDestroyed() || !mainWin) return;
+  const u = wc.getURL();
+  if (!isWebPageUrl(u)) return;
+  const base = safeDownloadName((wc.getTitle() || hostOf(u) || 'page').slice(0, 120));
+  let r;
+  try {
+    r = await dialog.showSaveDialog(mainWin, {
+      title: 'Enregistrer sous',
+      defaultPath: path.join(app.getPath('downloads'), base + '.html'),
+      filters: [
+        { name: 'Page Web, complète', extensions: ['html', 'htm'] },
+        { name: 'Page Web, HTML uniquement', extensions: ['html', 'htm'] },
+        { name: 'Archive Web (MHTML)', extensions: ['mhtml'] },
+      ],
+    });
+  } catch { return; }
+  if (!r || r.canceled || !r.filePath) return;
+  const type = /\.mhtml$/i.test(r.filePath) ? 'MHTML' : 'HTMLComplete';
+  wc.savePage(r.filePath, type).catch(() => {
+    dialog.showMessageBox(mainWin, { type: 'error', title: 'zaalis Browser', message: 'Impossible d\'enregistrer cette page.', buttons: ['OK'] }).catch(() => {});
+  });
+}
+
+function printPage(wc) {
+  if (!wc || wc.isDestroyed()) return;
+  try { wc.print({}, () => {}); } catch {}
+}
+
+function openViewSource(u, openerTab) {
+  if (!isWebPageUrl(u)) return;
+  const t = createTab('', true, { incognito: !!(openerTab && openerTab.incognito), openerId: openerTab ? openerTab.id : 0 });
+  try { t.view.webContents.loadURL('view-source:' + u); } catch {}
+}
+
+// Exécute un script sur l'élément média situé sous le clic (boucle, PiP…).
+function mediaAt(wc, params, body) {
+  const z = wc.getZoomFactor() || 1;
+  const x = Math.round(params.x / z), y = Math.round(params.y / z);
+  const code = `(() => { const el = document.elementFromPoint(${x}, ${y});
+    const m = el && (el.closest('video, audio') || (el.querySelector && el.querySelector('video, audio')));
+    if (!m) return false; ${body}; return true; })()`;
+  return wc.executeJavaScript(code, true).catch(() => false);
+}
+
+function showPageContextMenu(tab, params) {
+  const wc = tab.view.webContents;
+  const pageUrl = wc.getURL();
+  const internal = isInternal(pageUrl);
+  const items = [];
+  const sep = () => { if (items.length && items[items.length - 1].type !== 'separator') items.push({ type: 'separator' }); };
+  const flags = params.editFlags || {};
+  const mf = params.mediaFlags || {};
+
+  // Correcteur orthographique : suggestions en tête, comme Chrome.
+  if (params.isEditable && params.misspelledWord) {
+    const sugg = (params.dictionarySuggestions || []).slice(0, 5);
+    if (sugg.length) sugg.forEach(s => items.push({ label: s, click: () => wc.replaceMisspelling(s) }));
+    else items.push({ label: 'Aucune suggestion', enabled: false });
+    items.push({ label: 'Ajouter au dictionnaire', click: () => { try { wc.session.addWordToSpellCheckerDictionary(params.misspelledWord); } catch {} } });
+    sep();
+  }
+
+  if (params.linkURL) {
+    const linkIsWeb = isWebPageUrl(params.linkURL);
+    items.push({ label: 'Ouvrir le lien dans un nouvel onglet', enabled: linkIsWeb,
+      click: () => createTab(params.linkURL, false, { incognito: tab.incognito, openerId: tab.id }) });
+    items.push({ label: 'Ouvrir le lien dans un onglet de navigation privée', enabled: linkIsWeb,
+      click: () => createTab(params.linkURL, true, { incognito: true }) });
+    sep();
+    items.push({ label: 'Enregistrer le lien sous…', enabled: linkIsWeb, click: () => saveResourceAs(wc, params.linkURL) });
+    items.push({ label: 'Copier l\'adresse du lien', click: () => clipboard.writeText(params.linkURL) });
+    if (params.linkText && !params.srcURL) items.push({ label: 'Copier le texte du lien', click: () => clipboard.writeText(params.linkText) });
+    sep();
+  }
+
+  if (params.mediaType === 'image' && params.srcURL) {
+    items.push({ label: 'Ouvrir l\'image dans un nouvel onglet', enabled: /^(https?|data|blob):/i.test(params.srcURL) && !/^data:/i.test(params.srcURL),
+      click: () => createTab(params.srcURL, false, { incognito: tab.incognito, openerId: tab.id }) });
+    items.push({ label: 'Enregistrer l\'image sous…', click: () => saveResourceAs(wc, params.srcURL) });
+    items.push({ label: 'Copier l\'image', click: () => wc.copyImageAt(params.x, params.y) });
+    items.push({ label: 'Copier l\'adresse de l\'image', click: () => clipboard.writeText(params.srcURL) });
+    sep();
+  } else if ((params.mediaType === 'video' || params.mediaType === 'audio') && !mf.inError) {
+    const isVideo = params.mediaType === 'video';
+    items.push({ label: mf.isPaused ? 'Lecture' : 'Pause', click: () => mediaAt(wc, params, 'm.paused ? m.play() : m.pause()') });
+    items.push({ label: mf.isMuted ? 'Réactiver le son' : 'Couper le son', enabled: mf.hasAudio !== false, click: () => mediaAt(wc, params, 'm.muted = !m.muted') });
+    if (mf.canLoop !== false) items.push({ label: 'Boucle', type: 'checkbox', checked: !!mf.isLooping, click: () => mediaAt(wc, params, 'm.loop = !m.loop') });
+    if (mf.canToggleControls) items.push({ label: 'Afficher les commandes', type: 'checkbox', checked: !!mf.isControlsVisible, click: () => mediaAt(wc, params, 'm.controls = !m.controls') });
+    if (isVideo && mf.canShowPictureInPicture) {
+      items.push({ label: 'Picture-in-picture', type: 'checkbox', checked: !!mf.isShowingPictureInPicture,
+        click: () => mediaAt(wc, params, 'document.pictureInPictureElement === m ? document.exitPictureInPicture() : m.requestPictureInPicture()') });
+    }
+    sep();
+    const saveable = params.srcURL && /^https?:/i.test(params.srcURL);
+    if (saveable) {
+      items.push({ label: isVideo ? 'Ouvrir la vidéo dans un nouvel onglet' : 'Ouvrir l\'audio dans un nouvel onglet',
+        click: () => createTab(params.srcURL, false, { incognito: tab.incognito, openerId: tab.id }) });
+      if (mf.canSave !== false) items.push({ label: isVideo ? 'Enregistrer la vidéo sous…' : 'Enregistrer l\'audio sous…', click: () => saveResourceAs(wc, params.srcURL) });
+      items.push({ label: isVideo ? 'Copier l\'adresse de la vidéo' : 'Copier l\'adresse de l\'audio', click: () => clipboard.writeText(params.srcURL) });
+      sep();
+    }
+  }
+
+  if (params.isEditable) {
+    items.push({ label: 'Annuler', accelerator: ACCEL.undo, registerAccelerator: false, enabled: !!flags.canUndo, click: () => wc.undo() });
+    items.push({ label: 'Rétablir', accelerator: ACCEL.redo, registerAccelerator: false, enabled: !!flags.canRedo, click: () => wc.redo() });
+    sep();
+    items.push({ label: 'Couper', accelerator: ACCEL.cut, registerAccelerator: false, enabled: !!flags.canCut, click: () => wc.cut() });
+    items.push({ label: 'Copier', accelerator: ACCEL.copy, registerAccelerator: false, enabled: !!flags.canCopy, click: () => wc.copy() });
+    items.push({ label: 'Coller', accelerator: ACCEL.paste, registerAccelerator: false, enabled: !!flags.canPaste, click: () => wc.paste() });
+    items.push({ label: 'Coller en tant que texte brut', accelerator: ACCEL.pastePlain, registerAccelerator: false, enabled: !!flags.canPaste, click: () => wc.pasteAndMatchStyle() });
+    items.push({ label: 'Tout sélectionner', accelerator: ACCEL.all, registerAccelerator: false, enabled: flags.canSelectAll !== false, click: () => wc.selectAll() });
+    sep();
+  } else if (params.selectionText && params.selectionText.trim()) {
+    const sel = params.selectionText.trim().replace(/\s+/g, ' ');
+    const short = sel.length > 32 ? sel.slice(0, 30) + '…' : sel;
+    items.push({ label: 'Copier', accelerator: ACCEL.copy, registerAccelerator: false, click: () => wc.copy() });
+    items.push({ label: 'Rechercher « ' + short + ' » sur ' + (SEARCH_ENGINE_NAMES[settings.searchEngine] || 'Google'),
+      click: () => createTab(sel.slice(0, 500), true, { incognito: tab.incognito, openerId: tab.id }) });
+    if (/^\S+\.[a-z]{2,}(\/\S*)?$/i.test(sel) || /^https?:\/\//i.test(sel)) {
+      items.push({ label: 'Accéder à ' + short, click: () => createTab(sel, true, { incognito: tab.incognito, openerId: tab.id }) });
+    }
+    sep();
+  }
+
+  const onPageArea = !params.linkURL && !params.isEditable && !(params.selectionText && params.selectionText.trim()) &&
+                     (params.mediaType === 'none' || !params.mediaType);
+  if (onPageArea) {
+    items.push({ label: 'Retour', accelerator: ACCEL.back, registerAccelerator: false, enabled: wc.navigationHistory.canGoBack(), click: () => wc.navigationHistory.goBack() });
+    items.push({ label: 'Avancer', accelerator: ACCEL.fwd, registerAccelerator: false, enabled: wc.navigationHistory.canGoForward(), click: () => wc.navigationHistory.goForward() });
+    items.push({ label: 'Actualiser', accelerator: ACCEL.reload, registerAccelerator: false, click: () => reloadFresh(wc) });
+    sep();
+    if (!internal) {
+      items.push({ label: 'Enregistrer sous…', accelerator: ACCEL.save, registerAccelerator: false, click: () => savePageAs(wc) });
+      items.push({ label: 'Imprimer…', accelerator: ACCEL.print, registerAccelerator: false, click: () => printPage(wc) });
+      items.push({ label: 'Traduire la page en français', click: () => translatePage('français') });
+      sep();
+    }
+  }
+
+  // IA : résumé/chat sur la page courante via zaalis labs ide.
+  items.push({ label: 'Demander à l\'IA — résumé de la page', click: () => askAiAboutPage() });
+  if (onPageArea) {
+    items.push({ label: tab.pinned ? 'Détacher l\'onglet' : 'Épingler l\'onglet', click: () => togglePinTab(tab.id) });
+    if (!internal) items.push({ label: 'Installer comme application…', click: () => installAsApp(tab.id) });
+  }
+
+  if (settings.devTools) {
+    sep();
+    if (onPageArea && !internal) items.push({ label: 'Afficher le code source de la page', accelerator: ACCEL.source, registerAccelerator: false, click: () => openViewSource(pageUrl, tab) });
+    items.push({ label: 'Inspecter', accelerator: ACCEL.inspect, registerAccelerator: false, click: () => wc.inspectElement(params.x, params.y) });
+  }
+  while (items.length && items[items.length - 1].type === 'separator') items.pop();
+  Menu.buildFromTemplate(items).popup({ window: mainWin || undefined });
 }
 
 // ----- Vue fractionnee (2 onglets max, comme Chrome) -------------------------
@@ -1979,6 +2794,7 @@ function showTabMenu(id) {
 function selectTab(id) {
   const idx = tabs.findIndex(t => t.id === id);
   if (idx < 0) return;
+  if (findBarOpen && findTabId !== id) closeFindBar();   // comme Chrome : la barre suit l'onglet
   const now = Date.now();
   const previous = activeTab();
   if (previous && previous.id !== id) previous.lastBackgroundAt = now;
@@ -1990,7 +2806,9 @@ function selectTab(id) {
   // Ne recharge jamais une page interne, un chargement en cours, ni un onglet
   // qui vient juste d'etre affiche. On evite ainsi les boucles et les pertes
   // de saisie, tout en revalidant les sites publies pendant l'absence.
-  if (t.loadedOnce && !t.loading && isWebPageUrl(t.view.webContents.getURL()) &&
+  const wcSel = t.view.webContents;
+  if (t.loadedOnce && !t.loading && isLocalDevUrl(wcSel.getURL()) &&
+      !wcSel.isCurrentlyAudible() && (t.lastGestureAt || 0) <= (t.lastFreshReloadAt || t.loadedAt || 0) &&
       asleepFor >= STALE_TAB_REFRESH_MS && now - t.lastFreshReloadAt >= STALE_TAB_REFRESH_MS) {
     t.lastFreshReloadAt = now;
     reloadFresh(t.view.webContents);
@@ -2000,25 +2818,39 @@ function selectTab(id) {
 }
 
 function closeTab(id) {
-  const idx = tabs.findIndex(t => t.id === id);
-  if (idx < 0) return;
-  if (splitPair && splitPair.includes(id)) splitPair = null;  // dissout la vue fractionnee
-  const t = tabs[idx];
-  // Mémorise l'URL pour la réouverture (⌘⇧T), sauf pages internes / privées.
+  const t = tabs.find(x => x.id === id);
+  if (!t) return;
+  t.closing = true;
+  // Mémorise l'URL pour la réouverture (Ctrl+Maj+T), sauf pages internes / privées.
   try {
     const u = t.view.webContents.getURL();
     if (u && !t.incognito && !isInternal(u)) { closedTabs.push(u); if (closedTabs.length > 25) closedTabs.shift(); }
   } catch {}
-  try { mainWin.contentView.removeChildView(t.view); } catch {}
+  removeTabEntry(t);
   try { t.view.webContents.close(); } catch {}
+}
+
+// Retire un onglet de la barre (fermeture par l'utilisateur ou par la page).
+function removeTabEntry(t) {
+  const idx = tabs.indexOf(t);
+  if (idx < 0) return;
+  const wasActive = idx === active;
+  if (splitPair && splitPair.includes(t.id)) splitPair = null;  // dissout la vue fractionnee
+  if (htmlFullscreenTabId === t.id) htmlFullscreenTabId = null;
+  try { mainWin.contentView.removeChildView(t.view); } catch {}
   tabs.splice(idx, 1);
   if (tabs.length === 0) {
     active = -1;
-    createTab('', true);
+    if (mainWin) createTab('', true);
     return;
   }
+  // Comme Chrome : fermer un onglet ouvert depuis un autre ramène à l'ouvreur
+  // (retour à la page d'origine après une pop-up de connexion, par exemple).
+  const opener = wasActive && t.openerId ? tabs.findIndex(x => x.id === t.openerId) : -1;
+  if (opener >= 0) { active = opener; selectTab(tabs[opener].id); return; }
   if (active >= tabs.length) active = tabs.length - 1;
   else if (idx < active) active--;
+  if (wasActive && tabs[active]) { selectTab(tabs[active].id); return; }
   layoutAll();
   pushState();
   scheduleSaveOpenTabs();
@@ -2042,7 +2874,7 @@ function reorderTabs(csv) {
 }
 
 // Chargement filtré par Safe Browsing (barre d'adresse + ouverture d'onglet).
-function guardedLoad(wc, u) {
+function guardedLoad(wc, u, loadOptions) {
   const target = allowedPageUrl(u, true);
   if (!target) return false;
   const verdict = safeBrowsingVerdict(target);
@@ -2051,7 +2883,9 @@ function guardedLoad(wc, u) {
     try { wc.loadURL('data:text/html;charset=utf-8;base64,' + Buffer.from(html, 'utf8').toString('base64')); } catch {}
     return true;
   }
-  try { wc.loadURL(target); return true; } catch { return false; }
+  // loadURL rejette sa promesse sur un téléchargement ou une navigation
+  // annulée : sans .catch, Node journaliserait une erreur non gérée.
+  try { wc.loadURL(target, loadOptions).catch(() => {}); return true; } catch { return false; }
 }
 
 function navigateActive(u) {
@@ -2210,10 +3044,19 @@ function setTheme(t) {
   pushAiPanelState();
 }
 
+function titleBarOverlayColors() {
+  return settings.theme === 'dark'
+    ? { color: '#202124', symbolColor: '#e8eaed', height: 38 }
+    : { color: '#e9eaed', symbolColor: '#3c4043', height: 38 };
+}
+
 function applyChromeTheme() {
   const bg = settings.theme === 'dark' ? '#202124' : '#e9eaed';
   if (mainWin) mainWin.setBackgroundColor(bg);
+  // Boutons Réduire / Agrandir / Fermer de Windows : suivent le thème choisi.
+  if (mainWin && process.platform !== 'darwin') { try { mainWin.setTitleBarOverlay(titleBarOverlayColors()); } catch {} }
   for (const t of tabs) { try { t.view.setBackgroundColor(bg); } catch {} }
+  if (findView && findBarOpen) sendFindOpen();
 }
 
 function setSearchEngine(e) {
@@ -2341,6 +3184,94 @@ function closePanel() {
   panelOpen = false;
   hidePanelAnimated();
   pushState();
+}
+
+// ----- Rechercher dans la page (Ctrl+F) --------------------------------------
+// Petite vue dédiée, suspendue sous la barre d'outils en haut à droite de la
+// page, comme la barre de recherche de Chrome.
+const FIND_URL = 'zaalis://home/find.html';
+const FIND_WIDTH = 400, FIND_HEIGHT = 64;
+let findView = null;
+let findBarOpen = false;
+let findText = '';
+let findTabId = null;
+
+function ensureFindView() {
+  if (findView) return;
+  findView = new WebContentsView({
+    webPreferences: {
+      preload: path.join(__dirname, 'preload-chrome.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  findView.setBackgroundColor('#00000000');
+  findView.setVisible(false);
+  lockInternalView(findView.webContents, FIND_URL);
+  findView.webContents.loadURL(FIND_URL);
+}
+
+function layoutFindBar(bodyTop, bodyWidth) {
+  if (!findView) return;
+  if (!findBarOpen || fullscreenTab()) { findView.setVisible(false); return; }
+  findView.setBounds({
+    x: Math.max(0, bodyWidth - FIND_WIDTH - 8), y: Math.max(0, bodyTop - 2),
+    width: Math.min(FIND_WIDTH, bodyWidth), height: FIND_HEIGHT,
+  });
+  findView.setVisible(true);
+}
+
+function sendFindOpen() {
+  if (!findView) return;
+  try { findView.webContents.send('zaalis:message', { type: 'findOpen', theme: settings.theme, text: findText }); } catch {}
+}
+
+function openFindBar() {
+  const t = activeTab();
+  if (!t || !mainWin || fullscreenTab()) return;
+  ensureFindView();
+  if (findTabId !== null && findTabId !== t.id) stopFind();
+  findBarOpen = true;
+  findTabId = t.id;
+  mainWin.contentView.addChildView(findView);   // au-dessus des onglets
+  layoutAll();
+  findView.webContents.focus();
+  sendFindOpen();
+  if (findText) runFind(findText, true, true);
+}
+
+function stopFind() {
+  const t = tabs.find(x => x.id === findTabId);
+  if (t && !t.view.webContents.isDestroyed()) { try { t.view.webContents.stopFindInPage('keepSelection'); } catch {} }
+}
+
+function closeFindBar() {
+  if (!findBarOpen) return;
+  stopFind();
+  findBarOpen = false;
+  findTabId = null;
+  if (findView) findView.setVisible(false);
+  const t = activeTab();
+  if (t) { try { t.view.webContents.focus(); } catch {} }
+}
+
+function runFind(text, forward, newSession) {
+  const t = activeTab();
+  if (!t) return;
+  findTabId = t.id;
+  const wc = t.view.webContents;
+  if (!text) {
+    try { wc.stopFindInPage('clearSelection'); } catch {}
+    return;
+  }
+  try { wc.findInPage(text, { forward: forward !== false, findNext: !!newSession }); } catch {}
+}
+
+let findNeedsNewSession = false;
+function findAgain(forward) {
+  if (!findBarOpen) { openFindBar(); return; }
+  if (findText) { runFind(findText, forward, findNeedsNewSession); findNeedsNewSession = false; }
 }
 
 // Courbe conservee pour l'animation native du panneau de chat IA.
@@ -3680,6 +4611,14 @@ function handleAction(a, args, event) {
     case 'getHistory':     sendPanelHistory(); break;
     case 'getDownloads':   pushDownloads(); break;
     case 'cancelDownload': cancelDownload(arg(0)); break;
+    case 'resumeDownload': resumeDownload(arg(0)); break;
+    // ----- Rechercher dans la page (find.html) -----
+    case 'findReady':      if (findBarOpen) sendFindOpen(); break;
+    case 'findQuery':      findText = String(args.join(SEP)).slice(0, 500); runFind(findText, true, true); findNeedsNewSession = false; break;
+    case 'findNext':       findAgain(true); break;
+    case 'findPrev':       findAgain(false); break;
+    case 'findClose':      closeFindBar(); break;
+    case 'setSitePopups':  setActiveSitePopups(arg(0) === '1', event ? event.sender : null); break;
     case 'showDownload':   showDownload(arg(0)); break;
     case 'openDownload':   openDownload(arg(0)); break;
     case 'removeDownload': removeDownload(arg(0)); break;
@@ -3707,7 +4646,10 @@ function handleAction(a, args, event) {
     case 'setSafeSearch':       settings.safeSearch = arg(0) === '1'; saveSettings(); pushPanelState(); break;
     case 'setHttpsOnly':        settings.httpsOnly = arg(0) === '1'; saveSettings(); pushPanelState(); break;
     case 'setSafeBrowsing':     settings.safeBrowsing = arg(0) === '1'; saveSettings(); pushPanelState(); break;
-    case 'resetPermissions':    sitePermissions = {}; saveSitePermissions(); break;
+    case 'resetPermissions':
+      sitePermissions = {}; saveSitePermissions();
+      for (const ctx of permissionContexts.values()) ctx.forgetOnce('');
+      break;
     case 'setSearchEngine':     setSearchEngine(arg(0)); break;
     case 'setZoomPct':          setZoomPct(parseInt(arg(0), 10)); break;
     case 'resetSettings':       resetSettings(); break;
@@ -3737,6 +4679,7 @@ const HOME_ACTIONS = new Set([
   'voiceStart', 'voiceStop', 'voiceAudio',
 ]);
 const AISEARCH_ACTIONS = new Set(['runAiSearch']);
+const FIND_ACTIONS = new Set(['findReady', 'findQuery', 'findNext', 'findPrev', 'findClose']);
 
 function trustedIpcAction(event, action) {
   const sender = event && event.sender;
@@ -3745,6 +4688,7 @@ function trustedIpcAction(event, action) {
   if ((chromeView && sender === chromeView.webContents) ||
       (panelView && sender === panelView.webContents) ||
       (aiPanelView && sender === aiPanelView.webContents)) return true;
+  if (findView && sender === findView.webContents) return FIND_ACTIONS.has(action);
 
   const tab = tabs.find(t => t.view && sender === t.view.webContents);
   if (!tab) return false;
@@ -3881,11 +4825,7 @@ function createWindow() {
     backgroundColor: settings.theme === 'dark' ? '#202124' : '#e9eaed',
     icon,
     titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: settings.theme === 'dark' ? '#202124' : '#e9eaed',
-      symbolColor: settings.theme === 'dark' ? '#e8eaed' : '#3c4043',
-      height: 38,
-    },
+    titleBarOverlay: titleBarOverlayColors(),
   });
 
   chromeView = new WebContentsView({
@@ -3911,6 +4851,22 @@ function createWindow() {
   chromeView.webContents.loadURL(CHROME_URL);
 
   mainWin.on('resize', layoutAll);
+  // F11 / plein écran vidéo : la barre d'onglets se masque, comme Chrome.
+  mainWin.on('enter-full-screen', () => { layoutAll(); pushState(); });
+  mainWin.on('leave-full-screen', () => {
+    // Quitter le plein écran de la fenêtre quitte aussi celui de la vidéo.
+    const t = fullscreenTab();
+    if (t) { htmlFullscreenTabId = null; try { t.view.webContents.executeJavaScript('document.fullscreenElement && document.exitFullscreen()', true).catch(() => {}); } catch {} }
+    layoutAll(); pushState();
+  });
+  // Boutons « Précédent / Suivant » de la souris et touches multimédias du clavier.
+  mainWin.on('app-command', (_e, cmd) => {
+    if (cmd === 'browser-backward') goBack();
+    else if (cmd === 'browser-forward') goForward();
+    else if (cmd === 'browser-refresh') withActiveWc(wc => reloadFresh(wc));
+    else if (cmd === 'browser-home') navigateActive(HOME_URL);
+    else if (cmd === 'browser-search') focusOmnibox();
+  });
   mainWin.on('closed', () => { mainWin = null; });
 
   mainWin.once('ready-to-show', () => mainWin.show());
@@ -3930,6 +4886,9 @@ function createWindow() {
 
 app.setName('zaalis browser');
 app.setAppUserModelId('com.zaalis.browser');
+
+// UA de Google Chrome pour toutes les sessions (voir chromeUserAgent()).
+app.userAgentFallback = chromeUserAgent();
 
 // Chromium utilise déjà l'accélération matérielle par défaut ; ce réglage
 // privilégie explicitement la rasterisation GPU pour les surfaces Chromium et
@@ -3952,12 +4911,21 @@ if (AGENT_SELFTEST) {
   app.setPath('userData', path.join(base, 'zaalis browser'));
 }
 
+// Adresse web passée en argument (raccourci, « Ouvrir avec », autre instance).
+function urlFromArgv(argv) {
+  return (argv || []).slice(1).find(a => /^https?:\/\//i.test(String(a))) || '';
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
   process.exit(0);
 }
-app.on('second-instance', () => {
-  if (mainWin) { mainWin.show(); mainWin.focus(); }
+app.on('second-instance', (_e, argv) => {
+  if (!mainWin) return;
+  const u = urlFromArgv(argv);
+  if (u) createTab(u, true);
+  if (mainWin.isMinimized()) mainWin.restore();
+  mainWin.show(); mainWin.focus();
 });
 
 app.on('before-quit', () => {
@@ -3965,7 +4933,198 @@ app.on('before-quit', () => {
   saveOpenTabsNow();
 });
 
-app.whenReady().then(() => {
+// ----- Widevine (Prime Video, Netflix, Disney+, Canal+, Spotify…) -----------
+// Le build castlabs installe le module DRM Widevine au premier lancement puis
+// le met à jour en arrière-plan. On l'attend brièvement avant d'ouvrir les
+// onglets (instantané quand il est déjà installé) sans jamais bloquer le
+// démarrage hors connexion.
+let widevineState = components ? 'pending' : 'unavailable';
+async function waitForWidevine(timeoutMs) {
+  if (!components) return;
+  const ready = components.whenReady([components.WIDEVINE_CDM_ID])
+    .then(() => { widevineState = 'ready'; })
+    .catch((e) => { widevineState = 'error'; console.warn('[widevine] installation impossible :', e && e.message); });
+  await Promise.race([ready, new Promise(r => setTimeout(r, timeoutMs))]);
+  if (widevineState === 'pending') console.warn('[widevine] module toujours en cours d\'installation, démarrage sans attendre');
+}
+
+// ----- Authentification HTTP (Basic/Digest, proxy) --------------------------
+// Electron annule ces demandes par défaut : routeurs, intranets ou serveurs
+// de test devenaient inaccessibles. Boîte « Connexion » comme dans Chrome.
+const pendingAuth = new Map();
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function askHttpCredentials(authInfo, requestUrl) {
+  const key = (authInfo.isProxy ? 'proxy|' : '') + authInfo.host + ':' + authInfo.port + '|' + (authInfo.realm || '');
+  if (pendingAuth.has(key)) return pendingAuth.get(key);
+  const p = new Promise((resolve) => {
+    if (!mainWin) { resolve(null); return; }
+    const dark = settings.theme === 'dark';
+    const insecure = /^http:/i.test(requestUrl || '') && !authInfo.isProxy;
+    const who = authInfo.isProxy ? 'Le proxy ' + authInfo.host + ':' + authInfo.port : (hostOf(requestUrl) || authInfo.host);
+    const html = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Connexion</title><style>
+      :root{color-scheme:${dark ? 'dark' : 'light'}}
+      body{margin:0;padding:22px 24px;font-family:"Segoe UI",Arial,sans-serif;font-size:13.5px;
+        background:${dark ? '#292a2d' : '#ffffff'};color:${dark ? '#e8eaed' : '#202124'}}
+      h1{font-size:17px;font-weight:600;margin:0 0 6px}
+      p{margin:0 0 14px;color:${dark ? '#9aa0a6' : '#5f6368'};line-height:1.45;word-break:break-word}
+      p.warn{color:${dark ? '#f28b82' : '#d93025'}}
+      label{display:block;font-size:12px;margin:10px 0 4px;color:${dark ? '#9aa0a6' : '#5f6368'}}
+      input{width:100%;box-sizing:border-box;height:34px;padding:0 10px;border-radius:8px;font:inherit;outline:none;
+        border:1px solid ${dark ? '#5f6368' : '#dadce0'};background:${dark ? '#202124' : '#fff'};color:inherit}
+      input:focus{border-color:${dark ? '#8ab4f8' : '#1a73e8'}}
+      .row{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+      button{height:34px;padding:0 18px;border-radius:17px;font:inherit;font-weight:600;cursor:pointer;
+        border:1px solid ${dark ? '#5f6368' : '#dadce0'};background:transparent;color:${dark ? '#8ab4f8' : '#1a73e8'}}
+      button.primary{background:${dark ? '#8ab4f8' : '#1a73e8'};border-color:transparent;color:${dark ? '#202124' : '#fff'}}
+    </style></head><body><form id="f">
+      <h1>Connexion</h1>
+      <p>${escapeHtml(who)} exige un nom d'utilisateur et un mot de passe.${authInfo.realm ? '<br>« ' + escapeHtml(authInfo.realm) + ' »' : ''}</p>
+      ${insecure ? '<p class="warn">Votre connexion à ce site n\'est pas privée.</p>' : ''}
+      <label for="u">Nom d'utilisateur</label><input id="u" autocomplete="username" autofocus>
+      <label for="p">Mot de passe</label><input id="p" type="password" autocomplete="current-password">
+      <div class="row"><button type="button" id="c">Annuler</button><button class="primary" type="submit">Se connecter</button></div>
+    </form><script>
+      const send = (v) => { document.title = 'zaalis-auth:' + JSON.stringify(v); };
+      document.getElementById('f').onsubmit = (e) => { e.preventDefault(); send({ u: document.getElementById('u').value, p: document.getElementById('p').value }); };
+      document.getElementById('c').onclick = () => send(null);
+      addEventListener('keydown', (e) => { if (e.key === 'Escape') send(null); });
+    <\/script></body></html>`;
+    const win = new BrowserWindow({
+      parent: mainWin, modal: true, width: 420, height: insecure ? 372 : 340,
+      resizable: false, minimizable: false, maximizable: false, fullscreenable: false,
+      show: false, title: 'Connexion', autoHideMenuBar: true,
+      backgroundColor: dark ? '#292a2d' : '#ffffff',
+      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, javascript: true },
+    });
+    win.setMenu(null);
+    let settled = false;
+    const finish = (v) => { if (settled) return; settled = true; resolve(v); if (!win.isDestroyed()) win.destroy(); };
+    win.webContents.on('page-title-updated', (e, title) => {
+      if (!String(title).startsWith('zaalis-auth:')) return;
+      e.preventDefault();
+      let v = null;
+      try { v = JSON.parse(title.slice('zaalis-auth:'.length)); } catch {}
+      finish(v && typeof v.u === 'string' ? { username: v.u, password: String(v.p || '') } : null);
+    });
+    win.webContents.on('will-navigate', (e) => e.preventDefault());
+    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    win.on('closed', () => finish(null));
+    win.once('ready-to-show', () => win.show());
+    win.loadURL('data:text/html;charset=utf-8;base64,' + Buffer.from(html, 'utf8').toString('base64'));
+  });
+  pendingAuth.set(key, p);
+  p.finally(() => pendingAuth.delete(key));
+  return p;
+}
+
+app.on('login', (event, _wc, details, authInfo, callback) => {
+  event.preventDefault();
+  askHttpCredentials(authInfo || {}, (details && details.url) || '').then((creds) => {
+    try { creds ? callback(creds.username, creds.password) : callback(); } catch {}
+  });
+});
+
+// ----- Raccourcis clavier (identiques à Chrome sur chaque plateforme) -------
+const IS_MAC = process.platform === 'darwin';
+function withActiveWc(fn) {
+  const t = activeTab();
+  if (t && !t.view.webContents.isDestroyed()) fn(t.view.webContents, t);
+}
+function goBack()    { withActiveWc(wc => { if (wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack(); }); }
+function goForward() { withActiveWc(wc => { if (wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward(); }); }
+function toggleDevTools(openConsole) {
+  if (!settings.devTools) return;
+  withActiveWc(wc => {
+    if (wc.isDevToolsOpened() && !openConsole) wc.closeDevTools();
+    else wc.openDevTools({ mode: 'detach' });
+  });
+}
+function focusOmnibox() { if (chromeView) { chromeView.webContents.focus(); chromeView.webContents.send('zaalis:message', { type: 'focusOmni' }); } }
+
+// Entrée de menu invisible : seul son raccourci compte (alias Windows de Chrome).
+const hidden = (accelerator, click) => ({ label: accelerator, accelerator, visible: false, acceleratorWorksWhenHidden: true, click });
+
+function buildAppMenu() {
+  const template = [
+    ...(IS_MAC ? [{ role: 'appMenu' }] : []),
+    { label: 'Fichier', submenu: [
+      { label: 'Nouvel onglet',               accelerator: 'CmdOrCtrl+T',       click: () => createTab('', true) },
+      { label: 'Nouvel onglet privé',         accelerator: 'CmdOrCtrl+Shift+N', click: () => openIncognitoTab() },
+      { label: 'Rouvrir l\'onglet fermé',     accelerator: 'CmdOrCtrl+Shift+T', click: () => reopenClosedTab() },
+      { type: 'separator' },
+      { label: 'Enregistrer la page sous…',   accelerator: 'CmdOrCtrl+S',       click: () => withActiveWc(wc => savePageAs(wc)) },
+      { label: 'Imprimer…',                   accelerator: 'CmdOrCtrl+P',       click: () => withActiveWc(wc => printPage(wc)) },
+      { type: 'separator' },
+      { label: 'Fermer l\'onglet',            accelerator: 'CmdOrCtrl+W',       click: () => { const t = activeTab(); if (t) closeTab(t.id); } },
+      ...(IS_MAC ? [] : [hidden('Ctrl+F4', () => { const t = activeTab(); if (t) closeTab(t.id); })]),
+      { label: 'Quitter', role: 'quit', ...(IS_MAC ? { accelerator: 'Cmd+Q' } : {}) },
+    ]},
+    { label: 'Édition', submenu: [
+      { role: 'undo', label: 'Annuler' }, { role: 'redo', label: 'Rétablir' }, { type: 'separator' },
+      { role: 'cut', label: 'Couper' }, { role: 'copy', label: 'Copier' }, { role: 'paste', label: 'Coller' },
+      { role: 'pasteAndMatchStyle', label: 'Coller en tant que texte brut' },
+      { role: 'selectAll', label: 'Tout sélectionner' },
+      { type: 'separator' },
+      { label: 'Rechercher…',                 accelerator: 'CmdOrCtrl+F',       click: () => openFindBar() },
+      { label: 'Rechercher le suivant',       accelerator: IS_MAC ? 'Cmd+G' : 'F3',             click: () => findAgain(true) },
+      { label: 'Rechercher le précédent',     accelerator: IS_MAC ? 'Cmd+Shift+G' : 'Shift+F3', click: () => findAgain(false) },
+      ...(IS_MAC ? [] : [hidden('Ctrl+G', () => findAgain(true)), hidden('Ctrl+Shift+G', () => findAgain(false))]),
+    ]},
+    { label: 'Onglets', submenu: [
+      { label: 'Onglet suivant',              accelerator: 'Ctrl+Tab',          click: () => cycleTab(1) },
+      { label: 'Onglet précédent',            accelerator: 'Ctrl+Shift+Tab',    click: () => cycleTab(-1) },
+      hidden(IS_MAC ? 'Cmd+Alt+Right' : 'Ctrl+PageDown', () => cycleTab(1)),
+      hidden(IS_MAC ? 'Cmd+Alt+Left'  : 'Ctrl+PageUp',   () => cycleTab(-1)),
+      { label: 'Aller à l\'onglet', submenu: [1,2,3,4,5,6,7,8].map(n => (
+          { label: 'Onglet ' + n, accelerator: 'CmdOrCtrl+' + n, click: () => gotoTab(n) }
+        )).concat([{ label: 'Dernier onglet', accelerator: 'CmdOrCtrl+9', click: () => gotoTab(9) }]) },
+      { label: 'Rechercher un onglet',        accelerator: 'CmdOrCtrl+Shift+A', click: () => { if (chromeView) chromeView.webContents.send('zaalis:message', { type: 'openTabSearch' }); } },
+    ]},
+    { label: 'Navigation', submenu: [
+      { label: 'Reculer',                     accelerator: IS_MAC ? 'Cmd+[' : 'Alt+Left',   click: goBack },
+      { label: 'Avancer',                     accelerator: IS_MAC ? 'Cmd+]' : 'Alt+Right',  click: goForward },
+      ...(IS_MAC ? [hidden('Cmd+Left', goBack), hidden('Cmd+Right', goForward)] : []),
+      { label: 'Actualiser',                  accelerator: 'CmdOrCtrl+R',       click: () => withActiveWc(wc => reloadFresh(wc)) },
+      { label: 'Actualiser sans le cache',    accelerator: 'CmdOrCtrl+Shift+R', click: () => withActiveWc(wc => reloadFresh(wc)) },
+      ...(IS_MAC ? [] : [
+        hidden('F5', () => withActiveWc(wc => reloadFresh(wc))),
+        hidden('Ctrl+F5', () => withActiveWc(wc => reloadFresh(wc))),
+        hidden('Shift+F5', () => withActiveWc(wc => reloadFresh(wc))),
+      ]),
+      { label: 'Accueil',                     accelerator: IS_MAC ? 'Cmd+Shift+H' : 'Alt+Home', click: () => navigateActive(HOME_URL) },
+      ...(IS_MAC ? [] : [hidden('Ctrl+Shift+H', () => navigateActive(HOME_URL))]),
+      { label: 'Barre d\'adresse',            accelerator: 'CmdOrCtrl+L',       click: focusOmnibox },
+      ...(IS_MAC ? [] : [hidden('Alt+D', focusOmnibox), hidden('F6', focusOmnibox), hidden('Ctrl+E', focusOmnibox), hidden('Ctrl+K', focusOmnibox)]),
+      { type: 'separator' },
+      { label: 'Ajouter aux favoris',         accelerator: 'CmdOrCtrl+D',       click: () => toggleBookmark() },
+      { label: 'Afficher la barre de favoris', accelerator: 'CmdOrCtrl+Shift+B', click: () => { settings.showBookmarks = !settings.showBookmarks; saveSettings(); pushState(); pushPanelState(); } },
+      { label: 'Historique',                  accelerator: IS_MAC ? 'Cmd+Y' : 'Ctrl+H',         click: () => openHistoryPanel() },
+      { label: 'Téléchargements',             accelerator: IS_MAC ? 'Cmd+Shift+J' : 'Ctrl+J',   click: () => { openPanel(); showPanelDownloads(); } },
+      { type: 'separator' },
+      { label: 'Afficher le code source',     accelerator: IS_MAC ? 'Alt+Cmd+U' : 'Ctrl+U',     click: () => withActiveWc((wc, t) => openViewSource(wc.getURL(), t)) },
+      { label: 'Outils de développement',     accelerator: IS_MAC ? 'Alt+Cmd+I' : 'Ctrl+Shift+I', click: () => toggleDevTools(false) },
+      ...(IS_MAC ? [] : [hidden('F12', () => toggleDevTools(false)), hidden('Ctrl+Shift+J', () => toggleDevTools(true))]),
+    ]},
+    { label: 'Affichage', submenu: [
+      { label: 'Zoom avant',    accelerator: 'CmdOrCtrl+Plus',  click: () => setZoomPct((settings.zoomPct || 100) + 10) },
+      hidden('CmdOrCtrl+=', () => setZoomPct((settings.zoomPct || 100) + 10)),
+      hidden('CmdOrCtrl+numadd', () => setZoomPct((settings.zoomPct || 100) + 10)),
+      { label: 'Zoom arrière',  accelerator: 'CmdOrCtrl+-',     click: () => setZoomPct((settings.zoomPct || 100) - 10) },
+      hidden('CmdOrCtrl+numsub', () => setZoomPct((settings.zoomPct || 100) - 10)),
+      { label: 'Taille réelle', accelerator: 'CmdOrCtrl+0',     click: () => setZoomPct(100) },
+      hidden('CmdOrCtrl+num0', () => setZoomPct(100)),
+      { type: 'separator' },
+      { label: 'Plein écran', accelerator: IS_MAC ? 'Ctrl+Cmd+F' : 'F11',
+        click: () => { if (mainWin) mainWin.setFullScreen(!mainWin.isFullScreen()); } },
+    ]},
+    ...(IS_MAC ? [{ role: 'windowMenu' }] : []),
+  ];
+  return Menu.buildFromTemplate(template);
+}
+
+app.whenReady().then(async () => {
   ensureDataFolder();
   loadSettings();
   loadProfiles();
@@ -3974,54 +5133,12 @@ app.whenReady().then(() => {
   loadAiChats();
   startIdeStatusWatcher();
   registerProtocol();  // enregistre aussi téléchargements + permissions (invité)
+  await waitForWidevine(4000);
+  Menu.setApplicationMenu(buildAppMenu());
   createWindow();
   startApi();
-  // Menu macOS minimal (rôles standard) + raccourcis.
-  const template = [
-    { role: 'appMenu' },
-    { role: 'fileMenu' },
-    { label: 'Édition', submenu: [
-      { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
-      { role: 'cut'  }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
-    ]},
-    { label: 'Onglets', submenu: [
-      { label: 'Nouvel onglet',            accelerator: 'CmdOrCtrl+T',       click: () => createTab('', true) },
-      { label: 'Nouvel onglet privé',      accelerator: 'CmdOrCtrl+Shift+N', click: () => openIncognitoTab() },
-      { label: 'Rouvrir l\'onglet fermé',  accelerator: 'CmdOrCtrl+Shift+T', click: () => reopenClosedTab() },
-      { label: 'Fermer l\'onglet',         accelerator: 'CmdOrCtrl+W',       click: () => { const t = activeTab(); if (t) closeTab(t.id); } },
-      { type: 'separator' },
-      { label: 'Onglet suivant',           accelerator: 'Ctrl+Tab',          click: () => cycleTab(1) },
-      { label: 'Onglet précédent',         accelerator: 'Ctrl+Shift+Tab',    click: () => cycleTab(-1) },
-      { label: 'Aller à l\'onglet', submenu: [1,2,3,4,5,6,7,8].map(n => (
-          { label: 'Onglet ' + n, accelerator: 'CmdOrCtrl+' + n, click: () => gotoTab(n) }
-        )).concat([{ label: 'Dernier onglet', accelerator: 'CmdOrCtrl+9', click: () => gotoTab(9) }]) },
-      { label: 'Rechercher un onglet',     accelerator: 'CmdOrCtrl+Shift+A', click: () => { if (chromeView) chromeView.webContents.send('zaalis:message', { type: 'openTabSearch' }); } },
-    ]},
-    { label: 'Navigation', submenu: [
-      { label: 'Reculer',                  accelerator: 'CmdOrCtrl+Left',    click: () => { const t = activeTab(); if (t && t.view.webContents.navigationHistory.canGoBack())    t.view.webContents.navigationHistory.goBack(); } },
-      { label: 'Avancer',                  accelerator: 'CmdOrCtrl+Right',   click: () => { const t = activeTab(); if (t && t.view.webContents.navigationHistory.canGoForward()) t.view.webContents.navigationHistory.goForward(); } },
-      { label: 'Actualiser',               accelerator: 'CmdOrCtrl+R',       click: () => { const t = activeTab(); if (t) reloadFresh(t.view.webContents); } },
-      { label: 'Actualiser sans le cache', accelerator: 'CmdOrCtrl+Shift+R', click: () => { const t = activeTab(); if (t) reloadFresh(t.view.webContents); } },
-      { label: 'Accueil',                  accelerator: 'CmdOrCtrl+Shift+H', click: () => navigateActive(HOME_URL) },
-      { label: 'Focus barre d\'adresse',   accelerator: 'CmdOrCtrl+L',       click: () => { if (chromeView) chromeView.webContents.send('zaalis:message', { type: 'focusOmni' }); } },
-      { type: 'separator' },
-      { label: 'Ajouter aux favoris',      accelerator: 'CmdOrCtrl+D',       click: () => toggleBookmark() },
-      { label: 'Historique',               accelerator: 'CmdOrCtrl+Y',       click: () => openHistoryPanel() },
-      { label: 'Téléchargements',          accelerator: 'CmdOrCtrl+Shift+J', click: () => { openPanel(); showPanelDownloads(); } },
-      { type: 'separator' },
-      { label: 'Outils de développement',  accelerator: 'Ctrl+Shift+I',      click: () => { const t = activeTab(); if (t) { const w = t.view.webContents; w.isDevToolsOpened() ? w.closeDevTools() : w.openDevTools({ mode: 'detach' }); } } },
-    ]},
-    { label: 'Affichage', submenu: [
-      { label: 'Zoom avant',    accelerator: 'CmdOrCtrl+Plus',  click: () => setZoomPct((settings.zoomPct || 100) + 10) },
-      { label: 'Zoom avant',    accelerator: 'CmdOrCtrl+=',     acceleratorWorksWhenHidden: true, visible: false, click: () => setZoomPct((settings.zoomPct || 100) + 10) },
-      { label: 'Zoom arrière',  accelerator: 'CmdOrCtrl+-',     click: () => setZoomPct((settings.zoomPct || 100) - 10) },
-      { label: 'Taille réelle', accelerator: 'CmdOrCtrl+0',     click: () => setZoomPct(100) },
-      { type: 'separator' },
-      { role: 'togglefullscreen', label: 'Plein écran' },
-    ]},
-    { role: 'windowMenu' },
-  ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  const argvUrl = urlFromArgv(process.argv);
+  if (argvUrl) createTab(argvUrl, true);
 
   if (AGENT_SELFTEST) {
     runAgentSelfTest(AGENT_SELFTEST).catch((e) => {
@@ -4126,18 +5243,175 @@ async function runAgentSelfTest(mode) {
   ensurePanelView();
   const boundsBeforePanel = panelBoundsUpdates;
   openPanel();
-  await sleepMs(PANEL_ANIM_MS + 160);
-  const panelVisual = await panelView.webContents.executeJavaScript(`({
-    open: document.body.classList.contains('panel-visible'),
-    transform: getComputedStyle(document.body).transform,
-    radius: parseFloat(getComputedStyle(document.body).borderTopLeftRadius) || 0
-  })`, true);
+  // Le panneau peut encore charger sa page : on attend la fin réelle de
+  // l'animation (au plus 2 s) au lieu d'un délai fixe.
+  let panelVisual = null;
+  for (let waited = 0; waited <= 2000; waited += 100) {
+    await sleepMs(100);
+    panelVisual = await panelView.webContents.executeJavaScript(`({
+      open: document.body.classList.contains('panel-visible'),
+      transform: getComputedStyle(document.body).transform,
+      radius: parseFloat(getComputedStyle(document.body).borderTopLeftRadius) || 0
+    })`, true);
+    if (panelVisual.open && panelVisual.transform === 'matrix(1, 0, 0, 1, 0, 0)') break;
+  }
+  // Fenêtre de test recouverte par une autre application : Chromium ne fait
+  // pas avancer les transitions CSS, on lit alors directement la position finale.
+  if (panelVisual.open && panelVisual.transform !== 'matrix(1, 0, 0, 1, 0, 0)') {
+    panelVisual.transform = await panelView.webContents.executeJavaScript(`(() => {
+      const b = document.body, prev = b.style.transition;
+      b.style.transition = 'none';
+      const tr = getComputedStyle(b).transform;
+      b.style.transition = prev;
+      return tr;
+    })()`, true);
+  }
   check('settings panel: opening completed', panelVisual.open && panelVisual.transform === 'matrix(1, 0, 0, 1, 0, 0)', JSON.stringify(panelVisual));
   check('settings panel: rounded left corners', panelVisual.radius === 10, JSON.stringify(panelVisual));
   closePanel();
   await sleepMs(PANEL_ANIM_MS + 100);
   check('settings panel: closing completed', panelViewVisible === false);
   check('settings panel: no frame-by-frame native movement', panelBoundsUpdates - boundsBeforePanel <= 1, String(panelBoundsUpdates - boundsBeforePanel));
+
+  // 9) Compatibilité « comme Chrome » : UA, Widevine, pop-ups, plein écran,
+  // recherche dans la page, liens d'applications, téléchargements, menus.
+  const ua = await wc.executeJavaScript('navigator.userAgent', true);
+  check('UA identique à Chrome (sans Electron ni nom d\'app)', /Chrome\/\d+\.0\.0\.0 Safari\/537\.36$/.test(ua) && !/Electron|zaalis/i.test(ua), ua);
+  if (components) {
+    await Promise.race([components.whenReady([components.WIDEVINE_CDM_ID]).catch(() => {}), sleepMs(20000)]);
+    // EME n'existe que dans un contexte sécurisé : page d'accueil zaalis://.
+    await wc.loadURL(HOME_URL);
+    await waitLoad(wc, 8000);
+    const drm = await wc.executeJavaScript(`(navigator.requestMediaKeySystemAccess
+      ? navigator.requestMediaKeySystemAccess('com.widevine.alpha',
+          [{ initDataTypes: ['cenc'], videoCapabilities: [{ contentType: 'video/mp4; codecs="avc1.42E01E"' }] }])
+          .then(a => a.keySystem, e => 'refus: ' + e.message)
+      : Promise.resolve('contexte non sécurisé'))`, true).catch(e => 'erreur: ' + e.message);
+    check('Widevine disponible (Prime Video, Netflix…)', drm === 'com.widevine.alpha', drm);
+  } else {
+    check('Widevine disponible (Prime Video, Netflix…)', false, 'Electron sans castlabs ECS');
+  }
+
+  t.lastGestureAt = 0;
+  check('pop-up sans clic : bloquée', !popupAllowed(t, { disposition: 'foreground-tab' }));
+  t.lastGestureAt = Date.now();
+  check('pop-up après un clic : autorisée', popupAllowed(t, { disposition: 'foreground-tab' }));
+  check('Ctrl+clic sur un lien : toujours autorisé', (t.lastGestureAt = 0, popupAllowed(t, { disposition: 'background-tab' })));
+
+  check('mailto: confié au système', isExternalAppUrl('mailto:test@example.com') && isExternalAppUrl('zoommtg://zoom.us/join'));
+  check('schémas dangereux refusés', BLOCKED_EXTERNAL_SCHEMES.has(urlScheme('ms-msdt:/id')) && !isExternalAppUrl('javascript:alert(1)') && !isExternalAppUrl('https://x.fr'));
+  check('erreur réseau : message adapté', describeNetError(-106, 'x')[1] === 'Aucune connexion Internet' && describeNetError(-201, 'x')[0].startsWith('ERR_CERT'));
+
+  const ctxTest = permissionContext('selftest-partition');
+  ctxTest.record('https://meet.example', 'camera', true, false);
+  check('autoriser une fois : valable pour la session', ctxTest.decision('https://meet.example', 'camera') === 'allow' &&
+        ctxTest.decision('https://meet.example', 'microphone') === '');
+  check('contenu protégé (DRM) accordé d\'office', AUTO_GRANTED_PERMISSIONS.has('mediaKeySystem') && AUTO_GRANTED_PERMISSIONS.has('fullscreen'));
+
+  const dlDir = path.join(os.tmpdir(), 'zaalis-agent-selftest', 'dl');
+  fs.rmSync(dlDir, { recursive: true, force: true });
+  fs.mkdirSync(dlDir, { recursive: true });
+  const first = uniqueDownloadPath(dlDir, 'rapport.txt');
+  reservedDownloadPaths.add(first.toLowerCase());
+  const second = uniqueDownloadPath(dlDir, 'rapport.txt');
+  reservedDownloadPaths.delete(first.toLowerCase());
+  check('téléchargements homonymes simultanés : noms distincts', first !== second && /rapport \(1\)\.txt$/.test(second), second);
+  check('nom de fichier nettoyé pour Windows', safeDownloadName('a:b*c?.txt') === 'a_b_c_.txt' && safeDownloadName('CON.txt') === '_CON.txt');
+
+  // Téléchargement réel de bout en bout : deux fichiers homonymes en parallèle
+  // depuis un petit serveur local, enregistrés sans boîte de dialogue.
+  const dlServer = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/plain', 'content-disposition': 'attachment; filename="rapport.txt"' });
+    setTimeout(() => res.end('contenu ' + req.url), 300);
+  });
+  await new Promise(r => dlServer.listen(0, '127.0.0.1', r));
+  const dlPort = dlServer.address().port;
+  const prevDownloads = app.getPath('downloads');
+  for (const f of fs.readdirSync(dlDir)) { try { fs.unlinkSync(path.join(dlDir, f)); } catch {} }
+  app.setPath('downloads', dlDir);
+  const before = downloads.length;
+  wc.downloadURL(`http://127.0.0.1:${dlPort}/a`);
+  wc.downloadURL(`http://127.0.0.1:${dlPort}/b`);
+  for (let i = 0; i < 50; i++) {
+    await sleepMs(100);
+    const fresh = downloads.slice(0, downloads.length - before);
+    if (fresh.length >= 2 && fresh.every(d => d.state !== 'progressing')) break;
+  }
+  const fresh = downloads.slice(0, downloads.length - before);
+  const savedNames = fresh.filter(d => d.state === 'completed' && fs.existsSync(d.path)).map(d => d.name).sort();
+  check('téléchargement réel : 2 fichiers enregistrés', savedNames.length === 2 &&
+        savedNames[0] === 'rapport (1).txt' && savedNames[1] === 'rapport.txt', JSON.stringify(fresh.map(d => [d.name, d.state])));
+  app.setPath('downloads', prevDownloads);
+  dlServer.close();
+
+  // Authentification HTTP Basic : boîte « Connexion », puis page affichée.
+  const authServer = http.createServer((req, res) => {
+    if (req.headers.authorization !== 'Basic ' + Buffer.from('demo:secret').toString('base64')) {
+      res.writeHead(401, { 'www-authenticate': 'Basic realm="Zone de test"' }); res.end('refuse'); return;
+    }
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end('<title>Authentifie</title><p>ok</p>');
+  });
+  await new Promise(r => authServer.listen(0, '127.0.0.1', r));
+  const authUrl = `http://127.0.0.1:${authServer.address().port}/prive`;
+  wc.loadURL(authUrl).catch(() => {});
+  let authWin = null;
+  for (let i = 0; i < 40 && !authWin; i++) {
+    await sleepMs(100);
+    authWin = BrowserWindow.getAllWindows().find(w => !w.isDestroyed() && w.getParentWindow && w.getParentWindow() === mainWin) || null;
+  }
+  if (authWin) {
+    await waitLoad(authWin.webContents, 4000);
+    await authWin.webContents.executeJavaScript(`document.getElementById('u').value = 'demo';
+      document.getElementById('p').value = 'secret'; document.getElementById('f').requestSubmit(); true`, true).catch(() => {});
+  }
+  for (let i = 0; i < 40 && wc.getTitle() !== 'Authentifie'; i++) await sleepMs(100);
+  check('authentification HTTP : boîte de connexion puis page', !!authWin && wc.getTitle() === 'Authentifie', 'titre=' + wc.getTitle());
+  authServer.close();
+
+  // Page d'erreur : message adapté et bouton « Réessayer » vers l'adresse d'origine.
+  wc.loadURL('http://zaalis-test.invalid/').catch(() => {});
+  for (let i = 0; i < 60 && wc.getTitle() !== 'Ce site est inaccessible'; i++) await sleepMs(100);
+  const errTitle = wc.getTitle();
+  check('page d\'erreur réseau affichée', errTitle === 'Ce site est inaccessible', errTitle);
+
+  // Onglet planté : page « Oups » au lieu d'un onglet blanc.
+  await wc.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent('<title>avant</title><p>x</p>')).catch(() => {});
+  wc.forcefullyCrashRenderer();
+  for (let i = 0; i < 60 && wc.getTitle() !== 'Oups, la page a planté'; i++) await sleepMs(100);
+  check('onglet planté : page de récupération', wc.getTitle() === 'Oups, la page a planté', wc.getTitle());
+
+  let menuOk = false;
+  try { const m = buildAppMenu(); menuOk = !!m && m.items.length >= 5; } catch (e) { menuOk = false; }
+  check('menu et raccourcis clavier construits', menuOk);
+
+  // Recherche dans la page (Ctrl+F) : trois occurrences attendues.
+  await wc.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent('<p>banane, banane et encore banane</p>'));
+  await waitLoad(wc, 8000);
+  const found = new Promise(resolve => {
+    const onFound = (_e, r) => { if (r.finalUpdate) { wc.removeListener('found-in-page', onFound); resolve(r.matches); } };
+    wc.on('found-in-page', onFound);
+    setTimeout(() => resolve(-1), 5000);
+  });
+  openFindBar();
+  findText = 'banane';
+  runFind(findText, true, true);
+  check('recherche dans la page : 3 résultats', (await found) === 3);
+  check('barre de recherche visible', !!findView && findBarOpen);
+  closeFindBar();
+
+  // Plein écran vidéo : l'onglet couvre toute la fenêtre, barre masquée. On
+  // rejoue les événements de Chromium plutôt que de basculer réellement l'écran
+  // (le passage réel en plein écran a été vérifié sur YouTube : 2560×1440).
+  wc.emit('enter-html-full-screen');
+  await sleepMs(200);
+  const [fw, fh] = mainWin.getContentSize();
+  const fb = t.view.getBounds();
+  check('plein écran vidéo : page sur toute la fenêtre', htmlFullscreenTabId === t.id && fb.x === 0 && fb.y === 0 && fb.width === fw && fb.height === fh,
+        JSON.stringify({ fb, fw, fh, fs: htmlFullscreenTabId }));
+  check('plein écran vidéo : barre d\'onglets masquée', chromeView.getVisible() === false);
+  wc.emit('leave-html-full-screen');
+  await sleepMs(200);
+  check('sortie du plein écran : barre restaurée', htmlFullscreenTabId === null && chromeView.getVisible() === true && t.view.getBounds().y === contentTop);
 
   if (mode === 'mistral') {
     settings.aiProvider = 'mistral';

@@ -248,20 +248,28 @@
   const chatEl = $("chat"), input = $("input"), sendBtn = $("send");
   let panelVisibilityFrame = 0;
 
+  let panelVisibilityTimer = 0;
   function setPanelVisibility(open) {
     if (panelVisibilityFrame) cancelAnimationFrame(panelVisibilityFrame);
+    clearTimeout(panelVisibilityTimer);
     if (!open) {
       document.body.classList.remove("ai-panel-visible");
       panelVisibilityFrame = 0;
       return;
     }
     document.body.classList.remove("ai-panel-visible");
+    const show = () => {
+      if (panelVisibilityFrame) cancelAnimationFrame(panelVisibilityFrame);
+      clearTimeout(panelVisibilityTimer);
+      panelVisibilityFrame = 0;
+      document.body.classList.add("ai-panel-visible");
+    };
     panelVisibilityFrame = requestAnimationFrame(() => {
-      panelVisibilityFrame = requestAnimationFrame(() => {
-        document.body.classList.add("ai-panel-visible");
-        panelVisibilityFrame = 0;
-      });
+      panelVisibilityFrame = requestAnimationFrame(show);
     });
+    // Fenêtre couverte ou réduite : Chromium suspend requestAnimationFrame.
+    // Le panneau doit quand même être ouvert quand elle redevient visible.
+    panelVisibilityTimer = setTimeout(show, 150);
   }
 
   let busy = false;
