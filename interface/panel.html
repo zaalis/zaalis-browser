@@ -284,7 +284,7 @@
 
   <!-- ----- Modele IA : choix du fournisseur ----- -->
   <div class="body screen" id="screen-aimodels" style="display:none">
-    <div class="group" id="ai-provider-list"></div>
+    <div id="ai-provider-list"></div>
   </div>
 
   <!-- ----- Modele IA : choix du sous-modele ----- -->
@@ -356,7 +356,7 @@
   </div>
 
   <div class="body screen" id="screen-voiceproviders" style="display:none">
-    <div class="group" id="voice-provider-list"></div>
+    <div id="voice-provider-list"></div>
   </div>
 
   <div class="body screen" id="screen-voicesub" style="display:none">
@@ -624,7 +624,7 @@
     },
     unreachable: {
       hint: "zaalis labs ide n'est pas lancé.",
-      msg:  "⚠️ Impossible de joindre zaalis labs ide sur ce Mac. Lancez l'application, puis réessayez."
+      msg:  "⚠️ Impossible de joindre zaalis labs ide sur cet ordinateur. Lancez l'application, puis réessayez."
     },
     offline: {
       hint: "Mode local sécurisé actif.",
@@ -653,24 +653,67 @@
   // ----- Modele IA : fournisseur -> sous-modele (comme dans zaalis labs ide) -
   function modelLabel(id) { return (state.aiModelLabels || {})[id] || id; }
 
-  function renderProviders() {
-    const box = $("ai-provider-list"); box.innerHTML = "";
+  const PROVIDER_ICONS = {
+    subscription: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+    api: '<svg viewBox="0 0 24 24"><path d="M12 2l2.2 6L20 10l-5.8 2L12 18l-2.2-6L4 10l5.8-2z"/></svg>',
+    compat: '<svg viewBox="0 0 24 24"><path d="M4 12h16"/><path d="M12 4a12 12 0 0 1 0 16"/><path d="M12 4a12 12 0 0 0 0 16"/><circle cx="12" cy="12" r="8"/></svg>',
+    local: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>',
+  };
+  const GROUP_ORDER = ["subscription", "api", "compat", "local"];
+  let compatExpanded = false;
+
+  // Liste des fournisseurs rangée par sections : abonnements, API officielles,
+  // passerelles compatibles OpenAI (repliées tant qu'aucune n'est choisie),
+  // puis modèles locaux (Ollama, GGUF). Partagée par l'IA et le mode vocal.
+  function renderProviderGroups(boxId, selectedKey, selectedSub, onPick) {
+    const box = $(boxId); box.innerHTML = "";
     const provs = state.aiProviders || {};
+    const titles = state.aiProviderGroups || {};
+    const byGroup = {};
     Object.keys(provs).forEach(key => {
-      const p = provs[key];
-      const row = document.createElement("div"); row.className = "menu-row";
-      const sel = key === state.aiProvider;
-      row.innerHTML =
-        '<div class="icon"><svg viewBox="0 0 24 24"><path d="M12 2l2.2 6L20 10l-5.8 2L12 18l-2.2-6L4 10l5.8-2z"/></svg></div>' +
-        '<div class="main"><div class="label"></div><div class="hint"></div></div>' +
-        '<div class="chev">' + (sel ? "&#10003;&nbsp;" : "") + '&rsaquo;</div>';
-      row.querySelector(".label").textContent = p.label;
-      row.querySelector(".hint").textContent = sel
-        ? modelLabel(state.aiSubmodel)
-        : (p.submodels.length + " modeles");
-      row.onclick = () => { pendingProvider = key; showScreen("aisub"); };
-      box.appendChild(row);
+      const g = provs[key].group || "api";
+      (byGroup[g] = byGroup[g] || []).push(key);
     });
+    const order = GROUP_ORDER.concat(Object.keys(byGroup).filter(g => !GROUP_ORDER.includes(g)));
+    order.forEach(g => {
+      const keys = byGroup[g];
+      if (!keys || !keys.length) return;
+      const group = document.createElement("div"); group.className = "group";
+      const title = document.createElement("div"); title.className = "group-title";
+      title.textContent = titles[g] || g;
+      group.appendChild(title);
+      const collapsed = g === "compat" && !compatExpanded && !keys.includes(selectedKey);
+      (collapsed ? [] : keys).forEach(key => {
+        const p = provs[key];
+        const row = document.createElement("div"); row.className = "menu-row";
+        const sel = key === selectedKey;
+        row.innerHTML =
+          '<div class="icon">' + (PROVIDER_ICONS[g] || PROVIDER_ICONS.api) + '</div>' +
+          '<div class="main"><div class="label"></div><div class="hint"></div></div>' +
+          '<div class="chev">' + (sel ? "&#10003;&nbsp;" : "") + '&rsaquo;</div>';
+        row.querySelector(".label").textContent = p.label;
+        const count = p.submodels.length;
+        row.querySelector(".hint").textContent = sel ? modelLabel(selectedSub)
+          : (p.hint || (count ? count + " modele" + (count > 1 ? "s" : "") : "Aucun modele installe"));
+        row.onclick = () => onPick(key);
+        group.appendChild(row);
+      });
+      if (g === "compat") {
+        const more = document.createElement("div"); more.className = "menu-row";
+        more.innerHTML = '<div class="icon">' + PROVIDER_ICONS.compat + '</div><div class="main"><div class="label"></div>' +
+          '<div class="hint">DeepSeek, Qwen, GLM, MiniMax, NVIDIA… (clé dans zaalis labs ide)</div></div>' +
+          '<div class="chev">' + (collapsed ? "&#9662;" : "&#9652;") + '</div>';
+        more.querySelector(".label").textContent = collapsed ? ("Afficher les " + keys.length + " passerelles") : "Masquer les passerelles";
+        more.onclick = () => { compatExpanded = collapsed; renderProviderGroups(boxId, selectedKey, selectedSub, onPick); };
+        if (collapsed || !keys.includes(selectedKey)) group.appendChild(more);
+      }
+      box.appendChild(group);
+    });
+  }
+
+  function renderProviders() {
+    renderProviderGroups("ai-provider-list", state.aiProvider, state.aiSubmodel,
+      key => { pendingProvider = key; showScreen("aisub"); });
   }
 
   function renderSubmodels() {
@@ -678,6 +721,11 @@
     const prov = (state.aiProviders || {})[pendingProvider];
     if (!prov) { showScreen("aimodels"); return; }
     $("title").textContent = prov.label;
+    if (!prov.submodels.length) {
+      const e = document.createElement("div"); e.className = "empty";
+      e.textContent = "Aucun modele disponible. Installez-en un depuis zaalis labs ide.";
+      box.appendChild(e);
+    }
     prov.submodels.forEach(id => {
       const row = document.createElement("div"); row.className = "menu-row";
       const sel = pendingProvider === state.aiProvider && id === state.aiSubmodel;
@@ -696,21 +744,8 @@
   }
 
   function renderVoiceProviders() {
-    const box = $("voice-provider-list"); box.innerHTML = "";
-    const provs = state.aiProviders || {};
-    Object.keys(provs).forEach(key => {
-      const p = provs[key];
-      const row = document.createElement("div"); row.className = "menu-row";
-      const sel = key === state.voiceProvider;
-      row.innerHTML =
-        '<div class="icon"><svg viewBox="0 0 24 24"><path d="M12 2l2.2 6L20 10l-5.8 2L12 18l-2.2-6L4 10l5.8-2z"/></svg></div>' +
-        '<div class="main"><div class="label"></div><div class="hint"></div></div>' +
-        '<div class="chev">' + (sel ? "&#10003;&nbsp;" : "") + '&rsaquo;</div>';
-      row.querySelector(".label").textContent = p.label;
-      row.querySelector(".hint").textContent = sel ? modelLabel(state.voiceSubmodel) : (p.submodels.length + " modeles");
-      row.onclick = () => { pendingVoiceProvider = key; showScreen("voicesub"); };
-      box.appendChild(row);
-    });
+    renderProviderGroups("voice-provider-list", state.voiceProvider, state.voiceSubmodel,
+      key => { pendingVoiceProvider = key; showScreen("voicesub"); });
   }
 
   function renderVoiceSubmodels() {

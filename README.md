@@ -23,6 +23,30 @@ Spotify…) can play like in Google Chrome.
 - Find in page, print, save page as, view source, full context menu
 - HTTP authentication dialog, network error pages and crashed-tab recovery
 - Search, voice search and contextual zaalis labs IDE assistance
+
+## AI models and native agent
+
+AI requests go through the local zaalis labs IDE, which keeps every API key and
+account. The model list mirrors the IDE catalogue, grouped in the settings panel:
+
+- **Subscriptions**: ChatGPT (Plus / Pro account signed in in the IDE) — GPT-6 Sol,
+  GPT-6 Luna, GPT-5.6 Sol/Terra/Luna, GPT-5.5, GPT-5.4…
+- **Official APIs**: OpenAI, Claude, Gemini, Grok, Mistral, Kimi
+- **OpenAI-compatible gateways**: DeepSeek, Z.AI (GLM), Qwen / Alibaba plans,
+  MiniMax, NVIDIA NIM, Hugging Face, Xiaomi MiMo, StepFun, Vercel AI Gateway…
+- **Local**: Ollama and GGUF (llama.cpp), filled live from the IDE
+
+The AI panel drives the browser natively, like the Claude and ChatGPT Chrome
+extensions: `read_page`, `find`, `get_page_text`, `screenshot` (vision, zoom),
+`click` (right/double/modifiers), `hover`, `fill`, `form_input`, `type`, `key`,
+`scroll`, `scroll_to`, `drag`, `upload_file`, `navigate`, tabs (`tabs_list`,
+`tab_new`, `tab_select`, `tab_close`), `wait`/`wait_for`, `read_console`,
+`read_network`, `fetch_url`, `execute_js`, `inject_css`, `resize_viewport`,
+`download` and `save_pdf`. Actions that change a page are confirmed once per
+request; every file upload is confirmed individually.
+
+Live test with a real model: `set ZAALIS_AGENT_SELFTEST=chatgpt&& electron .`
+(ChatGPT subscription, GPT-6 Luna).
 - Windows 10 and Windows 11 title-bar integration and Chrome keyboard shortcuts
   (Ctrl+T/W/Shift+T, Ctrl+Tab, Alt+←/→, F5, Ctrl+F, F3, Ctrl+H, Ctrl+J, Ctrl+P,
   Ctrl+S, Ctrl+U, F11, F12, mouse back/forward buttons…)
