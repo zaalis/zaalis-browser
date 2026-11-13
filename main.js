@@ -19,7 +19,8 @@
 const electron = require('electron');
 const {
   app, BaseWindow, BrowserWindow, WebContentsView, ipcMain, Menu, shell,
-  protocol, net, session, nativeImage, dialog, clipboard, desktopCapturer
+  protocol, net, session, nativeImage, dialog, clipboard, desktopCapturer,
+  safeStorage, screen
 } = electron;
 // API propre au build castlabs (Widevine). Absente d'un Electron standard.
 const components = electron.components || null;
@@ -94,6 +95,9 @@ const settings = {
   blockPopups:    false,
   contextMenus:   true,
   devTools:       true,
+  devToolsDock:   'right',   // right | bottom | window (fenêtre séparée)
+  devToolsWidth:  520,
+  devToolsHeight: 320,
   statusBar:      true,
   zoomControls:   true,
   restoreTabs:    false,
@@ -450,10 +454,37 @@ function profileDataDir() {
   return d;
 }
 
+// ----- Fichiers locaux chiffrés ---------------------------------------------
+// Historique, favoris, onglets à restaurer, téléchargements, autorisations et
+// conversations IA sont chiffrés sur disque avec la clé du compte Windows
+// (DPAPI, via safeStorage) — la même protection que les cookies. Un fichier
+// copié hors de la session de l'utilisateur est illisible. Les anciens
+// fichiers en clair sont relus tels quels puis chiffrés à la prochaine écriture.
+const SEAL_PREFIX = 'ZSEAL1:';
+function sealAvailable() {
+  try { return app.isReady() && safeStorage.isEncryptionAvailable(); } catch { return false; }
+}
+function sealWrite(file, text) {
+  let out = String(text);
+  if (sealAvailable()) {
+    try { out = SEAL_PREFIX + safeStorage.encryptString(out).toString('base64'); } catch {}
+  }
+  const tmp = file + '.tmp';
+  fs.writeFileSync(tmp, out, 'utf8');
+  fs.renameSync(tmp, file);   // écriture atomique
+}
+function sealRead(file) {
+  const raw = fs.readFileSync(file, 'utf8');
+  if (!raw.startsWith(SEAL_PREFIX)) return raw;
+  return safeStorage.decryptString(Buffer.from(raw.slice(SEAL_PREFIX.length), 'base64'));
+}
+
 function readTsv(name) {
   const p = path.join(profileDataDir(), name);
   if (!fs.existsSync(p)) return [];
-  return fs.readFileSync(p, 'utf8').split(/\r?\n/).map(l => {
+  let text = '';
+  try { text = sealRead(p); } catch { return []; }
+  return text.split(/\r?\n/).map(l => {
     const t = l.indexOf('\t');
     if (t < 0) return null;
     const url = l.slice(0, t), title = l.slice(t + 1);
@@ -463,7 +494,7 @@ function readTsv(name) {
 
 function writeTsv(name, list) {
   const p = path.join(profileDataDir(), name);
-  fs.writeFileSync(p, list.map(e => e.url + '\t' + (e.title || '')).join('\n'), 'utf8');
+  sealWrite(p, list.map(e => e.url + '\t' + (e.title || '')).join('\n'));
 }
 
 // ----- Lanceur : persistance par profil -------------------------------------
@@ -503,7 +534,7 @@ function saveOpenTabsNow() {
   if (!settings.restoreTabs) return;
   try {
     const urls = tabs.map(tabUrlForSession);
-    fs.writeFileSync(sessionTabsFile(), JSON.stringify({ active, urls }), 'utf8');
+    sealWrite(sessionTabsFile(), JSON.stringify({ active, urls }));
   } catch {}
 }
 function scheduleSaveOpenTabs() {
@@ -513,7 +544,7 @@ function scheduleSaveOpenTabs() {
 }
 function loadSessionTabs() {
   try {
-    const d = JSON.parse(fs.readFileSync(sessionTabsFile(), 'utf8'));
+    const d = JSON.parse(sealRead(sessionTabsFile()));
     const urls = Array.isArray(d.urls) ? d.urls.map(u => String(u || '')).slice(0, 40) : [];
     return { active: Math.max(0, Math.min(urls.length - 1, parseInt(d.active, 10) || 0)), urls };
   } catch { return null; }
@@ -560,6 +591,9 @@ function loadSettings() {
       else if (k === 'blockPopups')            settings.blockPopups = v === '1';
       else if (k === 'contextMenus')           settings.contextMenus = v !== '0';
       else if (k === 'devTools')               settings.devTools = v !== '0';
+      else if (k === 'devToolsDock')           settings.devToolsDock = ['right', 'bottom', 'window'].includes(v) ? v : 'right';
+      else if (k === 'devToolsWidth')          settings.devToolsWidth = Math.max(DEVTOOLS_MIN, parseInt(v, 10) || 520);
+      else if (k === 'devToolsHeight')         settings.devToolsHeight = Math.max(DEVTOOLS_MIN, parseInt(v, 10) || 320);
       else if (k === 'statusBar')              settings.statusBar = v !== '0';
       else if (k === 'zoomControls')           settings.zoomControls = v !== '0';
       else if (k === 'restoreTabs')            settings.restoreTabs = v === '1';
@@ -600,6 +634,9 @@ function saveSettings() {
     `blockPopups=${settings.blockPopups ? 1 : 0}`,
     `contextMenus=${settings.contextMenus ? 1 : 0}`,
     `devTools=${settings.devTools ? 1 : 0}`,
+    `devToolsDock=${settings.devToolsDock}`,
+    `devToolsWidth=${settings.devToolsWidth}`,
+    `devToolsHeight=${settings.devToolsHeight}`,
     `statusBar=${settings.statusBar ? 1 : 0}`,
     `zoomControls=${settings.zoomControls ? 1 : 0}`,
     `restoreTabs=${settings.restoreTabs ? 1 : 0}`,
@@ -1126,6 +1163,27 @@ function describeNetError(code, host) {
   return [`ERREUR_${c}`, 'Cette page ne fonctionne pas', `Impossible d'afficher <code>${host}</code> pour le moment.`];
 }
 
+// Liens « enveloppés » par un filtre de messagerie (Microsoft Safe Links :
+// Outlook, Teams). L'adresse réelle est dans le paramètre `url`. Quand le
+// filtre est injoignable (réseau qui bloque Exchange Online, panne…), la page
+// d'erreur propose d'ouvrir directement cette destination.
+function wrappedLinkTarget(u) {
+  try {
+    const x = new URL(String(u));
+    if (x.protocol !== 'https:' && x.protocol !== 'http:') return null;
+    const host = x.hostname.toLowerCase();
+    const safeLinks = host.endsWith('.safelinks.protection.outlook.com') ||
+      (host === 'statics.teams.cdn.office.net' && x.pathname.includes('/safelinks/'));
+    if (!safeLinks) return null;
+    const dest = new URL(x.searchParams.get('url') || '');
+    if (dest.protocol !== 'https:' && dest.protocol !== 'http:') return null;
+    if (dest.username || dest.password) return null;
+    return dest.toString();
+  } catch { return null; }
+}
+// Erreurs réseau pour lesquelles le serveur n'a pas pu être joint.
+const UNREACHABLE_NET_ERRORS = new Set([-7, -21, -100, -101, -102, -104, -105, -109, -118, -137, -324]);
+
 // Page d'erreur maison (chargée quand une navigation échoue).
 function errorPageHtml(u, code, desc, override) {
   let host = u;
@@ -1142,6 +1200,17 @@ function errorPageHtml(u, code, desc, override) {
   // « Réessayer » recharge l'adresse d'origine : un simple location.reload()
   // rechargerait la page d'erreur elle-même (document data:).
   const retry = /^https?:/i.test(String(u)) ? JSON.stringify(String(u)).replace(/</g, '\\u003c') : 'null';
+  // Lien Safe Links injoignable : accès direct à la destination, sauf si elle
+  // est signalée comme dangereuse.
+  let direct = (!override && UNREACHABLE_NET_ERRORS.has(Number(code))) ? wrappedLinkTarget(u) : null;
+  if (direct && safeBrowsingVerdict(direct)) direct = null;
+  let directHost = '';
+  try { if (direct) directHost = new URL(direct).host; } catch {}
+  const directJs = direct ? JSON.stringify(direct).replace(/</g, '\\u003c') : 'null';
+  const directNote = direct
+    ? `<p>Ce lien passe par le filtre Microsoft Safe Links, injoignable depuis votre réseau. Sa destination réelle est <code>${esc(directHost)}</code> : vous pouvez l'ouvrir directement, sans la vérification de Microsoft. Ne continuez que si vous faites confiance à l'expéditeur.</p>`
+    : '';
+  const directBtn = direct ? `<button id="direct">Ouvrir ${esc(directHost)}</button>` : '';
   return `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>${esc(title)}</title>
 <style>
   html,body{margin:0;height:100%;background:${bg};color:${fg};font-family:-apple-system,"Segoe UI",Arial,sans-serif;}
@@ -1157,8 +1226,10 @@ function errorPageHtml(u, code, desc, override) {
 </style></head><body><div class="wrap">
   <h1>${esc(title)}</h1>
   <p>${message}</p>
+  ${directNote}
   <div class="actions">
-    <button id="retry">Réessayer</button>
+    ${directBtn}
+    <button${direct ? ' class="ghost"' : ''} id="retry">Réessayer</button>
     <button class="ghost" id="back">Retour</button>
   </div>
   <div class="details"><b>${esc(shortCode)}</b><br>${encUrl}</div>
@@ -1166,6 +1237,9 @@ function errorPageHtml(u, code, desc, override) {
   const target = ${retry};
   document.getElementById('retry').onclick = () => { if (target) location.href = target; else location.reload(); };
   document.getElementById('back').onclick = () => history.back();
+  const direct = ${directJs};
+  const directBtn = document.getElementById('direct');
+  if (directBtn && direct) directBtn.onclick = () => { location.href = direct; };
 </script></body></html>`;
 }
 
@@ -1214,8 +1288,8 @@ function layoutAll() {
     // Seul l'onglet en plein écran reste visible, sur toute la fenêtre.
     chromeView.setVisible(false);
     for (const t of tabs) {
-      if (t === fsTab) { t.view.setBounds({ x: 0, y: 0, width: w, height: h }); t.view.setVisible(true); }
-      else t.view.setVisible(false);
+      if (t === fsTab) { t.view.setBounds({ x: 0, y: 0, width: w, height: h }); t.view.setVisible(true); hideDevViews(t); }
+      else hideTab(t);
     }
     if (panelView && panelViewVisible) panelView.setVisible(false);
     if (aiPanelView && aiPanelVisible) aiPanelView.setVisible(false);
@@ -1248,18 +1322,16 @@ function layoutAll() {
       // La vue de droite deborde d'1px sous celle de gauche : sans ce
       // recouvrement, le fond de fenetre transparait sur le joint sub-pixel
       // (trait noir). Chrome n'a aucune demarcation -> on l'imite.
-      t.view.setBounds({
+      placeTab(t, {
         x: isLeft ? 0 : half - 1,
         y: bodyTop,
         width: isLeft ? half : Math.max(0, bodyWidth - half + 1),
         height: bodyHeight,
       });
-      t.view.setVisible(true);
     } else if (!pair && i === active) {
-      t.view.setBounds({ x: 0, y: bodyTop, width: bodyWidth, height: bodyHeight });
-      t.view.setVisible(true);
+      placeTab(t, { x: 0, y: bodyTop, width: bodyWidth, height: bodyHeight });
     } else {
-      t.view.setVisible(false);
+      hideTab(t);
     }
   }
 
@@ -1268,6 +1340,185 @@ function layoutAll() {
   layoutAiPanel();
 
   layoutFindBar(bodyTop, bodyWidth);
+}
+
+// ----- Outils de développement ancrés (F12) ---------------------------------
+// Comme Chrome : F12 ouvre les DevTools dans la fenêtre, à droite ou en bas de
+// la page, avec une poignée pour les redimensionner. Chaque onglet a les siens
+// (tab.dev = { view, grip, rect }). Clic droit sur la poignée : choix de
+// l'ancrage (droite, bas, fenêtre séparée).
+const DEVTOOLS_MIN = 160;
+const DEVTOOLS_GRIP = 5;
+const DEVGRIP_URL = 'zaalis://home/devgrip.html';
+
+function hideDevViews(t) {
+  if (!t.dev) return;
+  try { t.dev.view.setVisible(false); t.dev.grip.setVisible(false); } catch {}
+}
+function hideTab(t) {
+  t.view.setVisible(false);
+  hideDevViews(t);
+}
+// Place un onglet dans `rect` en réservant, s'ils sont ouverts, la zone des
+// outils de développement et de leur poignée.
+// Découpe le rectangle de l'onglet entre la page, la poignée et les outils (à droite ou en bas).
+function devToolsLayout(rect) {
+  const bottom = settings.devToolsDock === 'bottom';
+  const total = bottom ? rect.height : rect.width;
+  const wanted = bottom ? settings.devToolsHeight : settings.devToolsWidth;
+  // La page garde toujours une zone visible, les outils aussi.
+  const size = Math.max(0, Math.min(Math.max(DEVTOOLS_MIN, wanted), total - DEVTOOLS_MIN - DEVTOOLS_GRIP));
+  const grip = Math.min(DEVTOOLS_GRIP, Math.max(0, total - size));
+  const page = Math.max(0, total - size - grip);
+  return bottom ? {
+    page: { x: rect.x, y: rect.y, width: rect.width, height: page },
+    grip: { x: rect.x, y: rect.y + page, width: rect.width, height: grip },
+    dev:  { x: rect.x, y: rect.y + page + grip, width: rect.width, height: size },
+  } : {
+    page: { x: rect.x, y: rect.y, width: page, height: rect.height },
+    grip: { x: rect.x + page, y: rect.y, width: grip, height: rect.height },
+    dev:  { x: rect.x + page + grip, y: rect.y, width: size, height: rect.height },
+  };
+}
+function placeTab(t, rect) {
+  const d = t.dev;
+  if (!d) { t.view.setBounds(rect); t.view.setVisible(true); return; }
+  d.rect = rect;
+  const parts = devToolsLayout(rect);
+  t.view.setBounds(parts.page);
+  d.grip.setBounds(parts.grip);
+  d.view.setBounds(parts.dev);
+  t.view.setVisible(true);
+  d.grip.setVisible(true);
+  d.view.setVisible(true);
+}
+
+// Les vues d'interface restent au-dessus des onglets et de leurs outils.
+function raiseOverlays() {
+  if (!mainWin) return;
+  if (chromeView) { mainWin.contentView.addChildView(chromeView); }
+  if (panelView && panelOpen) { mainWin.contentView.addChildView(panelView); }
+  if (aiPanelView && aiPanelOpen) { mainWin.contentView.addChildView(aiPanelView); }
+  if (findView) { mainWin.contentView.addChildView(findView); }
+}
+
+function disposeDevTools(tab) {
+  const d = tab && tab.dev;
+  if (!d) return;
+  tab.dev = null;
+  for (const v of [d.view, d.grip]) {
+    try { if (mainWin) mainWin.contentView.removeChildView(v); } catch {}
+    try { if (!v.webContents.isDestroyed()) v.webContents.close(); } catch {}
+  }
+}
+
+// inspectAt : { x, y } pour « Inspecter » (sélectionne l'élément sous le curseur).
+function openDevToolsFor(tab, inspectAt) {
+  if (!tab || !mainWin) return;
+  const wc = tab.view.webContents;
+  if (wc.isDestroyed()) return;
+  const inspect = () => { if (inspectAt) { try { wc.inspectElement(inspectAt.x, inspectAt.y); } catch {} } };
+
+  if (settings.devToolsDock === 'window') {
+    if (tab.dev) { wc.once('devtools-closed', () => openDevToolsFor(tab, inspectAt)); wc.closeDevTools(); return; }
+    if (inspectAt) inspect(); else wc.openDevTools({ mode: 'detach' });
+    return;
+  }
+  if (tab.dev) { inspect(); try { tab.dev.view.webContents.focus(); } catch {} return; }
+  // Des outils ouverts en fenêtre séparée doivent d'abord être fermés : leur
+  // vue d'accueil ne peut être définie qu'avant l'ouverture.
+  if (wc.isDevToolsOpened()) { wc.once('devtools-closed', () => openDevToolsFor(tab, inspectAt)); wc.closeDevTools(); return; }
+
+  const view = new WebContentsView();
+  const grip = new WebContentsView({
+    webPreferences: {
+      preload: path.join(__dirname, 'preload-chrome.js'),
+      contextIsolation: true, nodeIntegration: false, sandbox: true,
+    },
+  });
+  lockInternalView(grip.webContents, DEVGRIP_URL);
+  grip.webContents.loadURL(DEVGRIP_URL + '?theme=' + (settings.theme === 'dark' ? 'dark' : 'light'));
+  // F12 referme les outils même quand le clavier est dans les DevTools.
+  view.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown' && input.key === 'F12' && !input.control && !input.alt && !input.meta) {
+      event.preventDefault();
+      closeDevToolsFor(tab);
+    }
+  });
+  tab.dev = { view, grip, rect: null };
+  try {
+    wc.setDevToolsWebContents(view.webContents);
+    mainWin.contentView.addChildView(view);
+    mainWin.contentView.addChildView(grip);
+    raiseOverlays();
+    wc.openDevTools({ mode: 'detach' });
+  } catch {
+    disposeDevTools(tab);
+    try { wc.openDevTools({ mode: 'detach' }); } catch {}
+    return;
+  }
+  layoutAll();
+  inspect();
+}
+
+function closeDevToolsFor(tab) {
+  if (!tab) return;
+  const wc = tab.view.webContents;
+  // « devtools-closed » retire la zone ancrée ; le retrait direct ne sert que
+  // de filet si les outils n'étaient plus ouverts.
+  // (isDevToolsOpened() vaut toujours false pour des outils ancrés dans une
+  // vue fournie par l'application : on se fie à tab.dev.)
+  const docked = tab.dev;
+  try { if (!wc.isDestroyed() && (docked || wc.isDevToolsOpened())) wc.closeDevTools(); } catch {}
+  if (docked) setTimeout(() => { if (tab.dev === docked) { disposeDevTools(tab); layoutAll(); } }, 500);
+  try { if (!wc.isDestroyed() && tab === activeTab()) wc.focus(); } catch {}
+}
+
+function devToolsShown(tab) {
+  if (!tab) return false;
+  try { return !!tab.dev || tab.view.webContents.isDevToolsOpened(); } catch { return false; }
+}
+
+function setDevToolsDock(mode, tab) {
+  if (!['right', 'bottom', 'window'].includes(mode)) return;
+  const previous = settings.devToolsDock;
+  settings.devToolsDock = mode;
+  saveSettings();
+  if (mode === 'window' || previous === 'window') { if (tab) openDevToolsFor(tab); }
+  layoutAll();
+}
+
+function tabOfDevGrip(sender) {
+  return tabs.find(t => t.dev && t.dev.grip.webContents === sender) || null;
+}
+
+// La poignée ne transmet que « je bouge » : la position vient du curseur
+// système, fiable quel que soit le facteur d'échelle de l'écran.
+function dragDevGrip(tab) {
+  if (!tab || !tab.dev || !tab.dev.rect || !mainWin) return;
+  const rect = tab.dev.rect;
+  const origin = mainWin.getContentBounds();
+  const cursor = screen.getCursorScreenPoint();
+  if (settings.devToolsDock === 'bottom') {
+    const max = Math.max(DEVTOOLS_MIN, rect.height - DEVTOOLS_MIN - DEVTOOLS_GRIP);
+    settings.devToolsHeight = Math.round(Math.max(DEVTOOLS_MIN, Math.min(max, origin.y + rect.y + rect.height - cursor.y)));
+  } else {
+    const max = Math.max(DEVTOOLS_MIN, rect.width - DEVTOOLS_MIN - DEVTOOLS_GRIP);
+    settings.devToolsWidth = Math.round(Math.max(DEVTOOLS_MIN, Math.min(max, origin.x + rect.x + rect.width - cursor.x)));
+  }
+  layoutAll();
+}
+
+function showDevGripMenu(tab) {
+  if (!tab) return;
+  const dock = settings.devToolsDock;
+  Menu.buildFromTemplate([
+    { label: 'Ancrer à droite', type: 'radio', checked: dock === 'right', click: () => setDevToolsDock('right', tab) },
+    { label: 'Ancrer en bas', type: 'radio', checked: dock === 'bottom', click: () => setDevToolsDock('bottom', tab) },
+    { label: 'Ouvrir dans une fenêtre séparée', type: 'radio', checked: dock === 'window', click: () => setDevToolsDock('window', tab) },
+    { type: 'separator' },
+    { label: 'Fermer les outils de développement', accelerator: 'F12', registerAccelerator: false, click: () => closeDevToolsFor(tab) },
+  ]).popup({ window: mainWin || undefined });
 }
 
 // Le panneau de réglages est une surcouche : son animation ne doit jamais
@@ -1451,7 +1702,7 @@ function downloadsFile() { return path.join(profileDataDir(), 'downloads.json');
 function loadDownloads() {
   downloads = [];
   try {
-    const d = JSON.parse(fs.readFileSync(downloadsFile(), 'utf8'));
+    const d = JSON.parse(sealRead(downloadsFile()));
     if (Array.isArray(d)) downloads = d.filter(x => x && x.id && x.name).slice(0, DOWNLOAD_KEEP);
   } catch {}
   // Anciennes entrees sans icone (ou fichier remplace) : on la relit du systeme.
@@ -1462,7 +1713,7 @@ function saveDownloads() {
   // On ne persiste que les elements termines : un telechargement en cours n'a
   // aucun sens apres un redemarrage.
   const done = downloads.filter(d => d.state !== 'progressing').slice(0, DOWNLOAD_KEEP);
-  try { fs.writeFileSync(downloadsFile(), JSON.stringify(done), 'utf8'); } catch {}
+  try { sealWrite(downloadsFile(), JSON.stringify(done)); } catch {}
 }
 
 function downloadsPayload() {
@@ -1640,6 +1891,33 @@ function setupSession(partition) {
   return ses;
 }
 
+// Écrit sur disque les cookies et le stockage des sessions ouvertes (fermeture
+// de l'application) : aucune connexion n'est perdue, rien ne reste en attente.
+function flushSessions() {
+  for (const partition of readyPartitions) {
+    if (partition === INCOGNITO_PARTITION) continue;   // jamais persistée
+    try {
+      const ses = session.fromPartition(partition);
+      ses.cookies.flushStore().catch(() => {});
+      ses.flushStorageData();
+    } catch {}
+  }
+}
+
+// DNS chiffré (DNS-over-HTTPS), comme le « DNS sécurisé » de Chrome : les noms
+// des sites visités ne circulent plus en clair sur le réseau local et un DNS
+// de box défaillant ou filtrant n'empêche plus d'ouvrir un site. Mode
+// automatique : en cas d'échec, Chromium retombe sur le DNS du système (noms
+// internes d'entreprise, portails captifs…).
+function configureSecureDns() {
+  try {
+    app.configureHostResolver({
+      secureDnsMode: 'automatic',
+      secureDnsServers: ['https://cloudflare-dns.com/dns-query', 'https://dns.google/dns-query'],
+    });
+  } catch {}
+}
+
 // ----- Permissions par site (caméra, micro, géoloc, notifications…) ---------
 // Même modèle que Chrome : les autorisations sans risque sont accordées
 // d'office, les autres ouvrent une demande « Bloquer / Autoriser » dont le
@@ -1683,11 +1961,11 @@ function permissionDisplayName(name) {
 
 function permissionsFile() { return path.join(dataFolder, 'permissions.json'); }
 function loadSitePermissions() {
-  try { const d = JSON.parse(fs.readFileSync(permissionsFile(), 'utf8')); sitePermissions = (d && typeof d === 'object') ? d : {}; }
+  try { const d = JSON.parse(sealRead(permissionsFile())); sitePermissions = (d && typeof d === 'object') ? d : {}; }
   catch { sitePermissions = {}; }
 }
 function saveSitePermissions() {
-  try { fs.writeFileSync(permissionsFile(), JSON.stringify(sitePermissions), 'utf8'); } catch {}
+  try { sealWrite(permissionsFile(), JSON.stringify(sitePermissions)); } catch {}
 }
 function originOf(u) { try { return new URL(u).origin; } catch { return ''; } }
 function hostOf(u) { try { return new URL(u).host || String(u); } catch { return String(u || ''); } }
@@ -2361,6 +2639,14 @@ function createTab(rawUrl, activate, opts) {
 
   const wc = view.webContents;
 
+  // WebRTC : seule l'adresse publique de l'interface par défaut est exposée
+  // aux sites, jamais les adresses privées du réseau local.
+  try { wc.setWebRTCIPHandlingPolicy('default_public_interface_only'); } catch {}
+
+  // Outils de développement fermés (bouton, raccourci, fermeture de la fenêtre
+  // séparée) : on retire la zone ancrée et la page reprend toute la place.
+  wc.on('devtools-closed', () => { if (tab.dev) { disposeDevTools(tab); layoutAll(); } });
+
   // Capture des messages console de la page (tampon circulaire) pour que
   // l'assistant IA puisse les inspecter, comme l'extension Claude dans Chrome.
   wc.on('console-message', (event, ...legacyArgs) => {
@@ -2530,6 +2816,7 @@ function createTab(rawUrl, activate, opts) {
 
   // Une page peut se fermer elle-même (window.close() d'une pop-up de connexion).
   wc.once('destroyed', () => {
+    disposeDevTools(tab);
     if (!tab.closing && tabs.includes(tab)) removeTabEntry(tab);
   });
 
@@ -2558,10 +2845,7 @@ function createTab(rawUrl, activate, opts) {
 
   // Insertion sous chromeView / panel dans le z-order (les added-last sont au-dessus).
   // On remonte chromeView et panelView après.
-  if (chromeView) { mainWin.contentView.addChildView(chromeView); }
-  if (panelView && panelOpen) { mainWin.contentView.addChildView(panelView); }
-  if (aiPanelView && aiPanelOpen) { mainWin.contentView.addChildView(aiPanelView); }
-  if (findView) { mainWin.contentView.addChildView(findView); }
+  raiseOverlays();
 
   if (!opts.webContents) {
     // blob: = document généré par la page ouvreuse (PDF, facture…).
@@ -2747,7 +3031,7 @@ function showPageContextMenu(tab, params) {
   if (settings.devTools) {
     sep();
     if (onPageArea && !internal) items.push({ label: 'Afficher le code source de la page', accelerator: ACCEL.source, registerAccelerator: false, click: () => openViewSource(pageUrl, tab) });
-    items.push({ label: 'Inspecter', accelerator: ACCEL.inspect, registerAccelerator: false, click: () => wc.inspectElement(params.x, params.y) });
+    items.push({ label: 'Inspecter', accelerator: ACCEL.inspect, registerAccelerator: false, click: () => openDevToolsFor(tab, { x: params.x, y: params.y }) });
   }
   while (items.length && items[items.length - 1].type === 'separator') items.pop();
   Menu.buildFromTemplate(items).popup({ window: mainWin || undefined });
@@ -2882,6 +3166,7 @@ function removeTabEntry(t) {
   const wasActive = idx === active;
   if (splitPair && splitPair.includes(t.id)) splitPair = null;  // dissout la vue fractionnee
   if (htmlFullscreenTabId === t.id) htmlFullscreenTabId = null;
+  disposeDevTools(t);
   try { mainWin.contentView.removeChildView(t.view); } catch {}
   tabs.splice(idx, 1);
   if (tabs.length === 0) {
@@ -3026,6 +3311,7 @@ function installAsApp(id) {
 function rebuildTabsForProfile() {
   if (!mainWin) return;
   for (const t of tabs) {
+    disposeDevTools(t);
     try { mainWin.contentView.removeChildView(t.view); } catch {}
     try { t.view.webContents.close(); } catch {}
   }
@@ -3344,7 +3630,7 @@ function aiChatsFile() { return path.join(dataFolder, 'aichats.json'); }
 
 function loadAiChats() {
   try {
-    const d = JSON.parse(fs.readFileSync(aiChatsFile(), 'utf8'));
+    const d = JSON.parse(sealRead(aiChatsFile()));
     aiChats = Array.isArray(d) ? d.filter(c => c && c.id && Array.isArray(c.messages)) : [];
   } catch { aiChats = []; }
 }
@@ -3353,7 +3639,7 @@ function saveAiChats() {
   try {
     // Garde les 80 conversations les plus recentes.
     if (aiChats.length > 80) aiChats = aiChats.slice(-80);
-    fs.writeFileSync(aiChatsFile(), JSON.stringify(aiChats), 'utf8');
+    sealWrite(aiChatsFile(), JSON.stringify(aiChats));
   } catch {}
 }
 
@@ -5127,7 +5413,10 @@ function handleAction(a, args, event) {
     case 'pinTab':         togglePinTab(parseInt(arg(0), 10)); break;
     case 'installApp':     installAsApp(parseInt(arg(0), 10)); break;
     case 'translatePage':  translatePage('français'); break;
-    case 'toggleDevTools': { const t = activeTab(); if (t) { const w = t.view.webContents; w.isDevToolsOpened() ? w.closeDevTools() : w.openDevTools({ mode: 'detach' }); } break; }
+    case 'toggleDevTools': toggleDevTools(false); break;
+    case 'devGripMove':    dragDevGrip(tabOfDevGrip(event && event.sender)); break;
+    case 'devGripEnd':     saveSettings(); break;
+    case 'devGripMenu':    showDevGripMenu(tabOfDevGrip(event && event.sender)); break;
     case 'splitWith':      setSplit(parseInt(arg(0), 10)); break;
     case 'unsplit':        clearSplit(); break;
     case 'navigate':       navigateActive(resolveQuery(arg(0))); break;
@@ -5321,6 +5610,7 @@ const HOME_ACTIONS = new Set([
 ]);
 const AISEARCH_ACTIONS = new Set(['runAiSearch']);
 const FIND_ACTIONS = new Set(['findReady', 'findQuery', 'findNext', 'findPrev', 'findClose']);
+const DEVGRIP_ACTIONS = new Set(['devGripMove', 'devGripEnd', 'devGripMenu']);
 
 function trustedIpcAction(event, action) {
   const sender = event && event.sender;
@@ -5330,6 +5620,7 @@ function trustedIpcAction(event, action) {
       (panelView && sender === panelView.webContents) ||
       (aiPanelView && sender === aiPanelView.webContents)) return true;
   if (findView && sender === findView.webContents) return FIND_ACTIONS.has(action);
+  if (tabOfDevGrip(sender)) return DEVGRIP_ACTIONS.has(action);
 
   const tab = tabs.find(t => t.view && sender === t.view.webContents);
   if (!tab) return false;
@@ -5572,6 +5863,7 @@ app.on('second-instance', (_e, argv) => {
 app.on('before-quit', () => {
   if (saveTabsTimer) { clearTimeout(saveTabsTimer); saveTabsTimer = null; }
   saveOpenTabsNow();
+  flushSessions();
 });
 
 // ----- Widevine (Prime Video, Netflix, Disney+, Canal+, Spotify…) -----------
@@ -5677,9 +5969,9 @@ function goBack()    { withActiveWc(wc => { if (wc.navigationHistory.canGoBack()
 function goForward() { withActiveWc(wc => { if (wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward(); }); }
 function toggleDevTools(openConsole) {
   if (!settings.devTools) return;
-  withActiveWc(wc => {
-    if (wc.isDevToolsOpened() && !openConsole) wc.closeDevTools();
-    else wc.openDevTools({ mode: 'detach' });
+  withActiveWc((_wc, tab) => {
+    if (devToolsShown(tab) && !openConsole) closeDevToolsFor(tab);
+    else openDevToolsFor(tab);
   });
 }
 function focusOmnibox() { if (chromeView) { chromeView.webContents.focus(); chromeView.webContents.send('zaalis:message', { type: 'focusOmni' }); } }
@@ -5767,6 +6059,7 @@ function buildAppMenu() {
 
 app.whenReady().then(async () => {
   ensureDataFolder();
+  configureSecureDns();
   loadSettings();
   loadProfiles();
   loadSitePermissions();
@@ -5942,6 +6235,52 @@ async function runAgentSelfTest(mode) {
   check('mailto: confié au système', isExternalAppUrl('mailto:test@example.com') && isExternalAppUrl('zoommtg://zoom.us/join'));
   check('schémas dangereux refusés', BLOCKED_EXTERNAL_SCHEMES.has(urlScheme('ms-msdt:/id')) && !isExternalAppUrl('javascript:alert(1)') && !isExternalAppUrl('https://x.fr'));
   check('erreur réseau : message adapté', describeNetError(-106, 'x')[1] === 'Aucune connexion Internet' && describeNetError(-201, 'x')[0].startsWith('ERR_CERT'));
+
+  const safeLink = 'https://eur02.safelinks.protection.outlook.com/?url=https%3A%2F%2Fexample.org%2Fsso%2Findex.php&data=05&reserved=0';
+  check('Safe Links : destination extraite', wrappedLinkTarget(safeLink) === 'https://example.org/sso/index.php' &&
+        !wrappedLinkTarget('https://example.org/?url=https%3A%2F%2Fx.fr') && !wrappedLinkTarget(safeLink.replace('https%3A', 'javascript%3A')));
+  check('Safe Links injoignable : accès direct proposé', errorPageHtml(safeLink, -7, '').includes('id="direct"') &&
+        !errorPageHtml('https://example.org/', -7, '').includes('id="direct"') && !errorPageHtml(safeLink, -201, '').includes('id="direct"'));
+
+  const sealFile = path.join(app.getPath('userData'), 'selftest-seal');
+  sealWrite(sealFile, 'jeton-secret');
+  const sealedRaw = fs.readFileSync(sealFile, 'utf8');
+  check('fichiers locaux chiffrés sur disque', sealAvailable() && sealRead(sealFile) === 'jeton-secret' && !sealedRaw.includes('jeton-secret'));
+  fs.writeFileSync(sealFile, 'ancien fichier en clair', 'utf8');
+  check('anciens fichiers en clair toujours lisibles', sealRead(sealFile) === 'ancien fichier en clair');
+  try { fs.unlinkSync(sealFile); } catch {}
+
+  const devDockBefore = settings.devToolsDock;
+  const devOpened = () => !!t.dev && !!t.view.webContents.devToolsWebContents && /^devtools:/.test(t.dev.view.webContents.getURL());
+  const devRect = { x: 0, y: 95, width: 1200, height: 700 };
+  settings.devToolsDock = 'right';
+  selectTab(t.id);
+  openDevToolsFor(t);
+  await sleepMs(1500);
+  check('F12 : outils ouverts dans la fenêtre', devOpened());
+  {
+    const r = devToolsLayout(devRect);
+    check('F12 : ancrage à droite', r.dev.width === settings.devToolsWidth && r.page.width + r.grip.width + r.dev.width === devRect.width &&
+          r.dev.x === r.page.x + r.page.width + DEVTOOLS_GRIP && r.dev.height === devRect.height && r.page.height === devRect.height, JSON.stringify(r));
+    settings.devToolsDock = 'bottom';
+    const b = devToolsLayout(devRect);
+    check('F12 : ancrage en bas', b.dev.height === settings.devToolsHeight && b.page.height + b.grip.height + b.dev.height === devRect.height &&
+          b.dev.y === b.page.y + b.page.height + DEVTOOLS_GRIP && b.dev.width === devRect.width, JSON.stringify(b));
+    const small = devToolsLayout({ x: 0, y: 95, width: 300, height: 200 });
+    check('F12 : petite fenêtre, rien ne déborde', small.page.height >= 0 && small.page.height + small.grip.height + small.dev.height === 200, JSON.stringify(small));
+    const none = devToolsLayout({ x: 0, y: 95, width: 0, height: 0 });
+    check('F12 : fenêtre réduite, tailles nulles sans erreur', none.page.height === 0 && none.grip.height === 0 && none.dev.height === 0, JSON.stringify(none));
+  }
+  closeDevToolsFor(t);
+  await sleepMs(900);
+  check('F12 : fermeture', !t.dev && !t.view.webContents.devToolsWebContents);
+  openDevToolsFor(t);
+  await sleepMs(1500);
+  check('F12 : réouverture', devOpened());
+  closeDevToolsFor(t);
+  await sleepMs(900);
+  layoutAll();
+  settings.devToolsDock = devDockBefore;
 
   const ctxTest = permissionContext('selftest-partition');
   ctxTest.record('https://meet.example', 'camera', true, false);

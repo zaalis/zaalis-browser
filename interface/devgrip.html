@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Poignée des outils de développement</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #dadce0; }
+  html.dark, html.dark body { background: #3c4043; }
+  /* Poignée verticale (outils à droite) par défaut ; horizontale quand la vue
+     est plus large que haute (outils en bas). */
+  #grip { position: fixed; inset: 0; cursor: col-resize; touch-action: none; }
+  @media (min-aspect-ratio: 1/1) { #grip { cursor: row-resize; } }
+  #grip:hover, #grip.drag { background: #1a73e8; }
+  html.dark #grip:hover, html.dark #grip.drag { background: #8ab4f8; }
+</style>
+</head>
+<body>
+<div id="grip" title="Glisser pour redimensionner — clic droit pour changer l'ancrage"></div>
+<script>
+  if (new URLSearchParams(location.search).get('theme') === 'dark') document.documentElement.classList.add('dark');
+  const grip = document.getElementById('grip');
+  const send = (action) => { try { window.zaalisBridge.postMessage(action); } catch (e) {} };
+  let dragging = false, queued = false;
+
+  grip.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    dragging = true;
+    grip.classList.add('drag');
+    try { grip.setPointerCapture(e.pointerId); } catch (err) {}
+    e.preventDefault();
+  });
+  grip.addEventListener('pointermove', () => {
+    if (!dragging || queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; if (dragging) send('devGripMove'); });
+  });
+  const stop = () => {
+    if (!dragging) return;
+    dragging = false;
+    grip.classList.remove('drag');
+    send('devGripEnd');
+  };
+  grip.addEventListener('pointerup', stop);
+  grip.addEventListener('pointercancel', stop);
+  grip.addEventListener('lostpointercapture', stop);
+  window.addEventListener('contextmenu', (e) => { e.preventDefault(); send('devGripMenu'); });
+</script>
+</body>
+</html>

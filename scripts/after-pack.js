@@ -8,11 +8,13 @@ const path = require('path');
 function findResourceEditor() {
   const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
   const cacheRoot = path.join(localAppData, 'electron-builder', 'Cache', 'winCodeSign');
-  if (!fs.existsSync(cacheRoot)) return null;
+  const cached = fs.existsSync(cacheRoot)
+    ? fs.readdirSync(cacheRoot).map(name => path.join(cacheRoot, name, 'rcedit-x64.exe')).find(fs.existsSync)
+    : null;
+  if (cached) return cached;
 
-  return fs.readdirSync(cacheRoot)
-    .map(name => path.join(cacheRoot, name, 'rcedit-x64.exe'))
-    .find(fs.existsSync) || null;
+  const local = path.join(__dirname, '..', 'node_modules', 'rcedit', 'bin', 'rcedit-x64.exe');
+  return fs.existsSync(local) ? local : null;
 }
 
 // Python 3 disposant du client castlabs EVS (pip install castlabs-evs).
@@ -54,6 +56,27 @@ function vmpSign(appOutDir) {
   }
 }
 
+// Durcissement de l'exécutable (fusibles Electron), à faire AVANT la signature
+// VMP puisqu'il modifie le binaire :
+//  - cookies chiffrés sur disque avec la clé du compte Windows (DPAPI), comme
+//    Chrome : un fichier Cookies copié ailleurs est inutilisable ;
+//  - l'exécutable ne peut plus servir d'interpréteur Node (ELECTRON_RUN_AS_NODE,
+//    NODE_OPTIONS, --inspect) pour lire les données du navigateur ;
+//  - seul le code empaqueté (app.asar) est chargé, et file:// n'a aucun
+//    privilège particulier.
+async function hardenExecutable(executable) {
+  const { flipFuses, FuseVersion, FuseV1Options } = require('@electron/fuses');
+  await flipFuses(executable, {
+    version: FuseVersion.V1,
+    [FuseV1Options.EnableCookieEncryption]: true,
+    [FuseV1Options.RunAsNode]: false,
+    [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
+    [FuseV1Options.EnableNodeCliInspectArguments]: false,
+    [FuseV1Options.OnlyLoadAppFromAsar]: true,
+    [FuseV1Options.GrantFileProtocolExtraPrivileges]: false,
+  });
+}
+
 exports.default = async context => {
   if (context.electronPlatformName !== 'win32') return;
 
@@ -65,6 +88,8 @@ exports.default = async context => {
   const executable = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.exe`);
   const icon = path.join(context.packager.projectDir, 'assets', 'zaalis.ico');
   execFileSync(rcedit, [executable, '--set-icon', icon], { stdio: 'inherit' });
+
+  await hardenExecutable(executable);
 
   // Signature de développement d'electron.exe : inutile une fois renommé.
   try { fs.unlinkSync(path.join(context.appOutDir, 'electron.exe.sig')); } catch {}

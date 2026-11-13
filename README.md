@@ -22,6 +22,14 @@ Spotify…) can play like in Google Chrome.
 - Video fullscreen (YouTube, Prime Video…) and F11 immersive mode
 - Find in page, print, save page as, view source, full context menu
 - HTTP authentication dialog, network error pages and crashed-tab recovery
+- Docked developer tools: F12 opens DevTools inside the window (right or bottom,
+  resizable; right-click the divider to change the dock side or detach)
+- Data at rest: cookies encrypted with the Windows account key (DPAPI, packaged
+  builds), history/bookmarks/permissions/AI chats encrypted with `safeStorage`,
+  hardened executable (Electron fuses), DNS-over-HTTPS with system fallback,
+  WebRTC local-IP protection
+- Unreachable Microsoft Safe Links: the error page offers to open the wrapped
+  destination directly
 - Search, voice search and contextual zaalis labs IDE assistance
 
 ## AI models and native agent

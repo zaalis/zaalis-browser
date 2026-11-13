@@ -17,8 +17,10 @@
     "pack:x64": "npm run pack:win"
   },
   "devDependencies": {
+    "@electron/fuses": "^1.8.0",
     "electron": "https://github.com/castlabs/electron-releases#v43.5.0+wvcus",
     "electron-builder": "^25.1.8",
-    "png2icons": "^2.0.1"
+    "png2icons": "^2.0.1",
+    "rcedit": "^4.0.1"
   }
 }
